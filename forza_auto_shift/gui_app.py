@@ -29,7 +29,9 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -448,6 +450,53 @@ class AutoShiftWorker(QObject):
             self._listener.close()
 
 
+class CollapsibleBox(QWidget):
+    """A simple collapsible box with a clickable title and collapsible content."""
+
+    def __init__(self, title: str, collapsed: bool = False) -> None:
+        super().__init__()
+        self.title = title
+        self.is_collapsed = collapsed
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Header button
+        self.header_button = QPushButton(
+            f"▼ {title}" if not collapsed else f"► {title}"
+        )
+        self.header_button.setFlat(True)
+        self.header_button.setStyleSheet(
+            "text-align: left; padding: 5px; font-weight: bold;"
+        )
+        self.header_button.clicked.connect(self.toggle)
+        layout.addWidget(self.header_button)
+
+        # Content area
+        self.content_widget = QWidget()
+        self.content_layout = QFormLayout(self.content_widget)
+        layout.addWidget(self.content_widget)
+
+        if collapsed:
+            self.content_widget.hide()
+
+    def toggle(self) -> None:
+        self.is_collapsed = not self.is_collapsed
+        if self.is_collapsed:
+            self.content_widget.hide()
+            self.header_button.setText(f"► {self.title}")
+        else:
+            self.content_widget.show()
+            self.header_button.setText(f"▼ {self.title}")
+
+    def addRow(self, label: str | QWidget, field: QWidget | None = None) -> None:
+        if field is None:
+            self.content_layout.addRow(label)
+        else:
+            self.content_layout.addRow(label, field)
+
+
 class MainWindow(QMainWindow):
     """Minimal GUI shell for starting/stopping the core app loop."""
 
@@ -480,7 +529,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Forza Auto Shift")
-        self.resize(920, 560)
+        self.resize(1200, 700)
 
         self._thread: QThread | None = None
         self._worker: AutoShiftWorker | None = None
@@ -502,9 +551,14 @@ class MainWindow(QMainWindow):
 
         root = QWidget(self)
         self.setCentralWidget(root)
+        main_layout = QVBoxLayout(root)
 
-        layout = QVBoxLayout(root)
+        # Tab widget for settings
+        tabs = QTabWidget()
 
+        # ===== CONNECTION TAB =====
+        connection_widget = QWidget()
+        connection_layout = QVBoxLayout(connection_widget)
         connection_group = QGroupBox("Connection")
         connection_form = QFormLayout(connection_group)
         self._set_compact_form(connection_form)
@@ -516,8 +570,13 @@ class MainWindow(QMainWindow):
         self.port_input.setValue(DEFAULT_TELEMETRY_PORT)
         self._set_compact_numeric_input(self.port_input)
         connection_form.addRow("UDP port:", self.port_input)
-        layout.addWidget(connection_group)
+        connection_layout.addWidget(connection_group)
+        connection_layout.addStretch()
+        tabs.addTab(connection_widget, "Connection")
 
+        # ===== INPUT TAB =====
+        input_widget = QWidget()
+        input_layout = QVBoxLayout(input_widget)
         input_group = QGroupBox("Input")
         input_form = QFormLayout(input_group)
         self._set_compact_form(input_form)
@@ -549,94 +608,120 @@ class MainWindow(QMainWindow):
         shift_up_row.addStretch(1)
         shift_up_row.addWidget(self.record_shift_up_button)
         input_form.addRow("Shift up key:", shift_up_row)
-        layout.addWidget(input_group)
+        input_layout.addWidget(input_group)
+        input_layout.addStretch()
+        tabs.addTab(input_widget, "Input")
 
-        self.tuning_group = QGroupBox("AT Tuning")
-        tuning_form = QFormLayout(self.tuning_group)
-        self._set_compact_form(tuning_form)
+        # ===== TUNING TAB WITH COLLAPSIBLES =====
+        tuning_widget = QWidget()
+        tuning_layout = QVBoxLayout(tuning_widget)
+
+        # RPM Maps group
+        rpm_group = CollapsibleBox("RPM Maps", collapsed=False)
+        self._set_compact_form(rpm_group.content_layout)
         self.upshift_low_input = QSpinBox()
         self.upshift_low_input.setRange(500, 12000)
         self.upshift_low_input.setValue(2800)
         self._set_compact_numeric_input(self.upshift_low_input)
-        tuning_form.addRow("Upshift RPM (low throttle):", self.upshift_low_input)
+        rpm_group.addRow("Upshift RPM (low throttle):", self.upshift_low_input)
         self.upshift_high_input = QSpinBox()
         self.upshift_high_input.setRange(1000, 12000)
         self.upshift_high_input.setValue(7000)
         self._set_compact_numeric_input(self.upshift_high_input)
-        tuning_form.addRow("Upshift RPM (high throttle):", self.upshift_high_input)
+        rpm_group.addRow("Upshift RPM (high throttle):", self.upshift_high_input)
         self.downshift_low_input = QSpinBox()
         self.downshift_low_input.setRange(500, 12000)
         self.downshift_low_input.setValue(1100)
         self._set_compact_numeric_input(self.downshift_low_input)
-        tuning_form.addRow("Downshift RPM (low throttle):", self.downshift_low_input)
+        rpm_group.addRow("Downshift RPM (low throttle):", self.downshift_low_input)
         self.downshift_high_input = QSpinBox()
         self.downshift_high_input.setRange(500, 12000)
         self.downshift_high_input.setValue(3600)
         self._set_compact_numeric_input(self.downshift_high_input)
-        tuning_form.addRow("Downshift RPM (high throttle):", self.downshift_high_input)
+        rpm_group.addRow("Downshift RPM (high throttle):", self.downshift_high_input)
+        tuning_layout.addWidget(rpm_group)
+
+        # Cooldown & Basic Shift group
+        shift_group = CollapsibleBox("Shift Cooldown & Basic Behavior", collapsed=False)
+        self._set_compact_form(shift_group.content_layout)
         self.cooldown_input = QDoubleSpinBox()
         self.cooldown_input.setRange(0.05, 2.00)
         self.cooldown_input.setSingleStep(0.05)
         self.cooldown_input.setValue(0.35)
         self._set_compact_numeric_input(self.cooldown_input)
-        tuning_form.addRow("Shift cooldown (s):", self.cooldown_input)
+        shift_group.addRow("Shift cooldown (s):", self.cooldown_input)
         self.enable_dwell_checkbox = QCheckBox("Enable dwell")
         self.enable_dwell_checkbox.setChecked(False)
-        tuning_form.addRow(self.enable_dwell_checkbox)
+        shift_group.addRow(self.enable_dwell_checkbox)
+        tuning_layout.addWidget(shift_group)
+
+        # Dwell Timing group
+        dwell_group = CollapsibleBox("Dwell Timing", collapsed=True)
+        self._set_compact_form(dwell_group.content_layout)
         self.dwell_up_input = QDoubleSpinBox()
         self.dwell_up_input.setRange(0.0, 2.0)
         self.dwell_up_input.setSingleStep(0.05)
         self.dwell_up_input.setValue(0.0)
         self._set_compact_numeric_input(self.dwell_up_input)
-        tuning_form.addRow("Dwell after upshift (s):", self.dwell_up_input)
+        dwell_group.addRow("Dwell after upshift (s):", self.dwell_up_input)
         self.dwell_down_input = QDoubleSpinBox()
         self.dwell_down_input.setRange(0.0, 2.0)
         self.dwell_down_input.setSingleStep(0.05)
         self.dwell_down_input.setValue(0.0)
         self._set_compact_numeric_input(self.dwell_down_input)
-        tuning_form.addRow("Dwell after downshift (s):", self.dwell_down_input)
+        dwell_group.addRow("Dwell after downshift (s):", self.dwell_down_input)
         self.dwell_kickdown_input = QDoubleSpinBox()
         self.dwell_kickdown_input.setRange(0.0, 2.0)
         self.dwell_kickdown_input.setSingleStep(0.05)
         self.dwell_kickdown_input.setValue(0.0)
         self._set_compact_numeric_input(self.dwell_kickdown_input)
-        tuning_form.addRow("Dwell after kickdown (s):", self.dwell_kickdown_input)
+        dwell_group.addRow("Dwell after kickdown (s):", self.dwell_kickdown_input)
+        tuning_layout.addWidget(dwell_group)
+
+        # Kickdown Tuning group
+        kickdown_group = CollapsibleBox("Kickdown Tuning", collapsed=True)
+        self._set_compact_form(kickdown_group.content_layout)
         self.kickdown_threshold_input = QDoubleSpinBox()
         self.kickdown_threshold_input.setRange(0.0, 1.0)
         self.kickdown_threshold_input.setSingleStep(0.01)
         self.kickdown_threshold_input.setValue(0.88)
         self._set_compact_numeric_input(self.kickdown_threshold_input)
-        tuning_form.addRow(
+        kickdown_group.addRow(
             "Kickdown throttle threshold:", self.kickdown_threshold_input
         )
         self.kickdown_max_rpm_input = QSpinBox()
         self.kickdown_max_rpm_input.setRange(500, 12000)
         self.kickdown_max_rpm_input.setValue(5200)
         self._set_compact_numeric_input(self.kickdown_max_rpm_input)
-        tuning_form.addRow("Kickdown max RPM:", self.kickdown_max_rpm_input)
+        kickdown_group.addRow("Kickdown max RPM:", self.kickdown_max_rpm_input)
         self.kickdown_lockout_input = QDoubleSpinBox()
         self.kickdown_lockout_input.setRange(0.0, 3.0)
         self.kickdown_lockout_input.setSingleStep(0.05)
         self.kickdown_lockout_input.setValue(1.10)
         self._set_compact_numeric_input(self.kickdown_lockout_input)
-        tuning_form.addRow(
+        kickdown_group.addRow(
             "Kickdown lockout after upshift (s):", self.kickdown_lockout_input
         )
+        tuning_layout.addWidget(kickdown_group)
+
+        # Unload Guard group
+        unload_group = CollapsibleBox("Unload Upshift Guard", collapsed=True)
+        self._set_compact_form(unload_group.content_layout)
         self.enable_unload_guard_checkbox = QCheckBox("Enable unload upshift guard")
         self.enable_unload_guard_checkbox.setChecked(True)
-        tuning_form.addRow(self.enable_unload_guard_checkbox)
+        unload_group.addRow(self.enable_unload_guard_checkbox)
         self.unload_threshold_input = QDoubleSpinBox()
         self.unload_threshold_input.setRange(0.0, 1.0)
         self.unload_threshold_input.setSingleStep(0.01)
         self.unload_threshold_input.setValue(0.12)
         self._set_compact_numeric_input(self.unload_threshold_input)
-        tuning_form.addRow("Unload suspension threshold:", self.unload_threshold_input)
+        unload_group.addRow("Unload suspension threshold:", self.unload_threshold_input)
         self.unload_guard_duration_input = QDoubleSpinBox()
         self.unload_guard_duration_input.setRange(0.0, 2.0)
         self.unload_guard_duration_input.setSingleStep(0.05)
         self.unload_guard_duration_input.setValue(0.35)
         self._set_compact_numeric_input(self.unload_guard_duration_input)
-        tuning_form.addRow(
+        unload_group.addRow(
             "Unload guard lockout duration (s):", self.unload_guard_duration_input
         )
         self.unload_min_throttle_input = QDoubleSpinBox()
@@ -644,22 +729,29 @@ class MainWindow(QMainWindow):
         self.unload_min_throttle_input.setSingleStep(0.01)
         self.unload_min_throttle_input.setValue(0.45)
         self._set_compact_numeric_input(self.unload_min_throttle_input)
-        tuning_form.addRow("Unload guard min throttle:", self.unload_min_throttle_input)
+        unload_group.addRow(
+            "Unload guard min throttle:", self.unload_min_throttle_input
+        )
+        tuning_layout.addWidget(unload_group)
+
+        # Slip Guard group
+        slip_group = CollapsibleBox("Slip Upshift Guard", collapsed=True)
+        self._set_compact_form(slip_group.content_layout)
         self.enable_slip_guard_checkbox = QCheckBox("Enable slip upshift guard")
         self.enable_slip_guard_checkbox.setChecked(True)
-        tuning_form.addRow(self.enable_slip_guard_checkbox)
+        slip_group.addRow(self.enable_slip_guard_checkbox)
         self.slip_threshold_input = QDoubleSpinBox()
         self.slip_threshold_input.setRange(0.0, 2.0)
         self.slip_threshold_input.setSingleStep(0.01)
         self.slip_threshold_input.setValue(0.28)
         self._set_compact_numeric_input(self.slip_threshold_input)
-        tuning_form.addRow("Slip ratio threshold:", self.slip_threshold_input)
+        slip_group.addRow("Slip ratio threshold:", self.slip_threshold_input)
         self.slip_guard_duration_input = QDoubleSpinBox()
         self.slip_guard_duration_input.setRange(0.0, 2.0)
         self.slip_guard_duration_input.setSingleStep(0.05)
         self.slip_guard_duration_input.setValue(0.30)
         self._set_compact_numeric_input(self.slip_guard_duration_input)
-        tuning_form.addRow(
+        slip_group.addRow(
             "Slip guard lockout duration (s):", self.slip_guard_duration_input
         )
         self.slip_min_throttle_input = QDoubleSpinBox()
@@ -667,11 +759,18 @@ class MainWindow(QMainWindow):
         self.slip_min_throttle_input.setSingleStep(0.01)
         self.slip_min_throttle_input.setValue(0.45)
         self._set_compact_numeric_input(self.slip_min_throttle_input)
-        tuning_form.addRow("Slip guard min throttle:", self.slip_min_throttle_input)
-        self.tuning_group.setCheckable(True)
-        self.tuning_group.setChecked(False)
-        layout.addWidget(self.tuning_group)
+        slip_group.addRow("Slip guard min throttle:", self.slip_min_throttle_input)
+        tuning_layout.addWidget(slip_group)
 
+        tuning_layout.addStretch()
+        tuning_scroll = QScrollArea()
+        tuning_scroll.setWidget(tuning_widget)
+        tuning_scroll.setWidgetResizable(True)
+        tabs.addTab(tuning_scroll, "Tuning")
+
+        # ===== PRESETS TAB =====
+        presets_widget = QWidget()
+        presets_layout = QVBoxLayout(presets_widget)
         presets_group = QGroupBox("Presets")
         presets_form = QFormLayout(presets_group)
         self._set_compact_form(presets_form)
@@ -691,8 +790,14 @@ class MainWindow(QMainWindow):
         self.preset_delete_button.clicked.connect(self._delete_selected_preset)
         preset_actions.addWidget(self.preset_delete_button)
         presets_form.addRow("Actions:", preset_actions)
-        layout.addWidget(presets_group)
+        presets_layout.addWidget(presets_group)
+        presets_layout.addStretch()
+        tabs.addTab(presets_widget, "Presets")
 
+        self._settings_tabs = tabs
+        main_layout.addWidget(tabs)
+
+        # ===== CONTROLS BAR =====
         controls = QHBoxLayout()
         self.record_hotkey_button = QPushButton("Record Hotkey")
         self.record_hotkey_button.clicked.connect(self._start_hotkey_recording)
@@ -713,18 +818,20 @@ class MainWindow(QMainWindow):
         self.stop_button.clicked.connect(self.stop_worker)
         self.stop_button.setEnabled(False)
         controls.addWidget(self.stop_button)
-        layout.addLayout(controls)
+        main_layout.addLayout(controls)
 
         self.statusBar().showMessage("Status: Idle | Telemetry: Waiting | Focus: N/A")
 
+        # ===== LOG VIEW =====
         divider = QFrame()
         divider.setFrameShape(QFrame.HLine)
         divider.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(divider)
+        main_layout.addWidget(divider)
 
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
-        layout.addWidget(self.log_view)
+        self.log_view.setMaximumHeight(200)
+        main_layout.addWidget(self.log_view)
 
         self.hotkey_pressed.connect(self._handle_hotkey_press)
         self.hotkey_released.connect(self._handle_hotkey_release)
@@ -797,23 +904,51 @@ class MainWindow(QMainWindow):
         self._thread = thread
         self._worker = worker
 
-        self.listen_address_input.setEnabled(False)
-        self.port_input.setEnabled(False)
-        self.dry_run_checkbox.setEnabled(False)
-        self.focus_guard_checkbox.setEnabled(False)
-        self.record_shift_down_button.setEnabled(False)
-        self.record_shift_up_button.setEnabled(False)
-        self.tuning_group.setEnabled(False)
-        self.preset_selector.setEnabled(False)
-        self.preset_name_input.setEnabled(False)
-        self.preset_save_button.setEnabled(False)
-        self.preset_delete_button.setEnabled(False)
-        self.log_level_input.setEnabled(False)
-        self.record_hotkey_button.setEnabled(False)
+        self._set_input_controls_enabled(False)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
 
         thread.start()
+
+    def _set_input_controls_enabled(self, enabled: bool) -> None:
+        """Enable/disable all input controls but keep tabs switchable."""
+        # Connection tab
+        self.listen_address_input.setEnabled(enabled)
+        self.port_input.setEnabled(enabled)
+        # Input tab
+        self.dry_run_checkbox.setEnabled(enabled)
+        self.focus_guard_checkbox.setEnabled(enabled)
+        self.record_shift_down_button.setEnabled(enabled)
+        self.record_shift_up_button.setEnabled(enabled)
+        # Tuning tab controls
+        self.upshift_low_input.setEnabled(enabled)
+        self.upshift_high_input.setEnabled(enabled)
+        self.downshift_low_input.setEnabled(enabled)
+        self.downshift_high_input.setEnabled(enabled)
+        self.cooldown_input.setEnabled(enabled)
+        self.enable_dwell_checkbox.setEnabled(enabled)
+        self.dwell_up_input.setEnabled(enabled)
+        self.dwell_down_input.setEnabled(enabled)
+        self.dwell_kickdown_input.setEnabled(enabled)
+        self.kickdown_threshold_input.setEnabled(enabled)
+        self.kickdown_max_rpm_input.setEnabled(enabled)
+        self.kickdown_lockout_input.setEnabled(enabled)
+        self.enable_unload_guard_checkbox.setEnabled(enabled)
+        self.unload_threshold_input.setEnabled(enabled)
+        self.unload_guard_duration_input.setEnabled(enabled)
+        self.unload_min_throttle_input.setEnabled(enabled)
+        self.enable_slip_guard_checkbox.setEnabled(enabled)
+        self.slip_threshold_input.setEnabled(enabled)
+        self.slip_guard_duration_input.setEnabled(enabled)
+        self.slip_min_throttle_input.setEnabled(enabled)
+        # Presets tab
+        self.preset_selector.setEnabled(enabled)
+        self.preset_name_input.setEnabled(enabled)
+        self.preset_save_button.setEnabled(enabled)
+        self.preset_delete_button.setEnabled(enabled)
+        # Hotkey and log level
+        self.log_level_input.setEnabled(enabled)
+        self.record_hotkey_button.setEnabled(enabled)
 
     @Slot()
     def stop_worker(self) -> None:
@@ -841,19 +976,7 @@ class MainWindow(QMainWindow):
         self._worker = None
         self._thread = None
 
-        self.listen_address_input.setEnabled(True)
-        self.port_input.setEnabled(True)
-        self.dry_run_checkbox.setEnabled(True)
-        self.focus_guard_checkbox.setEnabled(True)
-        self.record_shift_down_button.setEnabled(True)
-        self.record_shift_up_button.setEnabled(True)
-        self.tuning_group.setEnabled(True)
-        self.preset_selector.setEnabled(True)
-        self.preset_name_input.setEnabled(True)
-        self.preset_save_button.setEnabled(True)
-        self.preset_delete_button.setEnabled(True)
-        self.log_level_input.setEnabled(True)
-        self.record_hotkey_button.setEnabled(True)
+        self._set_input_controls_enabled(True)
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self._save_app_state()
