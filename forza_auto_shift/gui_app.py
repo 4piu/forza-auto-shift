@@ -115,6 +115,15 @@ BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, float | int | bool]] = {
         "dwell_after_kickdown_s": 0.60,
         "kickdown_throttle_threshold": 0.95,
         "kickdown_max_rpm": 4300,
+        "kickdown_lockout_after_upshift_s": 1.10,
+        "enable_unload_upshift_guard": True,
+        "unload_suspension_threshold": 0.12,
+        "unload_guard_after_detect_s": 0.35,
+        "unload_min_throttle": 0.45,
+        "enable_slip_upshift_guard": True,
+        "slip_upshift_guard_threshold": 0.28,
+        "slip_guard_after_detect_s": 0.30,
+        "slip_guard_min_throttle": 0.45,
     },
     "sports": {
         "upshift_rpm_low_throttle": 2900,
@@ -128,6 +137,15 @@ BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, float | int | bool]] = {
         "dwell_after_kickdown_s": 0.45,
         "kickdown_throttle_threshold": 0.88,
         "kickdown_max_rpm": 5400,
+        "kickdown_lockout_after_upshift_s": 0.95,
+        "enable_unload_upshift_guard": True,
+        "unload_suspension_threshold": 0.10,
+        "unload_guard_after_detect_s": 0.32,
+        "unload_min_throttle": 0.40,
+        "enable_slip_upshift_guard": True,
+        "slip_upshift_guard_threshold": 0.24,
+        "slip_guard_after_detect_s": 0.28,
+        "slip_guard_min_throttle": 0.38,
     },
     "race": {
         "upshift_rpm_low_throttle": 3300,
@@ -141,6 +159,15 @@ BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, float | int | bool]] = {
         "dwell_after_kickdown_s": 0.25,
         "kickdown_throttle_threshold": 0.82,
         "kickdown_max_rpm": 6200,
+        "kickdown_lockout_after_upshift_s": 0.70,
+        "enable_unload_upshift_guard": True,
+        "unload_suspension_threshold": 0.09,
+        "unload_guard_after_detect_s": 0.28,
+        "unload_min_throttle": 0.32,
+        "enable_slip_upshift_guard": True,
+        "slip_upshift_guard_threshold": 0.18,
+        "slip_guard_after_detect_s": 0.22,
+        "slip_guard_min_throttle": 0.28,
     },
 }
 
@@ -575,6 +602,60 @@ class MainWindow(QMainWindow):
         self.kickdown_max_rpm_input.setValue(5200)
         self._set_compact_numeric_input(self.kickdown_max_rpm_input)
         tuning_form.addRow("Kickdown max RPM:", self.kickdown_max_rpm_input)
+        self.kickdown_lockout_input = QDoubleSpinBox()
+        self.kickdown_lockout_input.setRange(0.0, 3.0)
+        self.kickdown_lockout_input.setSingleStep(0.05)
+        self.kickdown_lockout_input.setValue(1.10)
+        self._set_compact_numeric_input(self.kickdown_lockout_input)
+        tuning_form.addRow(
+            "Kickdown lockout after upshift (s):", self.kickdown_lockout_input
+        )
+        self.enable_unload_guard_checkbox = QCheckBox("Enable unload upshift guard")
+        self.enable_unload_guard_checkbox.setChecked(True)
+        tuning_form.addRow(self.enable_unload_guard_checkbox)
+        self.unload_threshold_input = QDoubleSpinBox()
+        self.unload_threshold_input.setRange(0.0, 1.0)
+        self.unload_threshold_input.setSingleStep(0.01)
+        self.unload_threshold_input.setValue(0.12)
+        self._set_compact_numeric_input(self.unload_threshold_input)
+        tuning_form.addRow("Unload suspension threshold:", self.unload_threshold_input)
+        self.unload_guard_duration_input = QDoubleSpinBox()
+        self.unload_guard_duration_input.setRange(0.0, 2.0)
+        self.unload_guard_duration_input.setSingleStep(0.05)
+        self.unload_guard_duration_input.setValue(0.35)
+        self._set_compact_numeric_input(self.unload_guard_duration_input)
+        tuning_form.addRow(
+            "Unload guard lockout duration (s):", self.unload_guard_duration_input
+        )
+        self.unload_min_throttle_input = QDoubleSpinBox()
+        self.unload_min_throttle_input.setRange(0.0, 1.0)
+        self.unload_min_throttle_input.setSingleStep(0.01)
+        self.unload_min_throttle_input.setValue(0.45)
+        self._set_compact_numeric_input(self.unload_min_throttle_input)
+        tuning_form.addRow("Unload guard min throttle:", self.unload_min_throttle_input)
+        self.enable_slip_guard_checkbox = QCheckBox("Enable slip upshift guard")
+        self.enable_slip_guard_checkbox.setChecked(True)
+        tuning_form.addRow(self.enable_slip_guard_checkbox)
+        self.slip_threshold_input = QDoubleSpinBox()
+        self.slip_threshold_input.setRange(0.0, 2.0)
+        self.slip_threshold_input.setSingleStep(0.01)
+        self.slip_threshold_input.setValue(0.28)
+        self._set_compact_numeric_input(self.slip_threshold_input)
+        tuning_form.addRow("Slip ratio threshold:", self.slip_threshold_input)
+        self.slip_guard_duration_input = QDoubleSpinBox()
+        self.slip_guard_duration_input.setRange(0.0, 2.0)
+        self.slip_guard_duration_input.setSingleStep(0.05)
+        self.slip_guard_duration_input.setValue(0.30)
+        self._set_compact_numeric_input(self.slip_guard_duration_input)
+        tuning_form.addRow(
+            "Slip guard lockout duration (s):", self.slip_guard_duration_input
+        )
+        self.slip_min_throttle_input = QDoubleSpinBox()
+        self.slip_min_throttle_input.setRange(0.0, 1.0)
+        self.slip_min_throttle_input.setSingleStep(0.01)
+        self.slip_min_throttle_input.setValue(0.45)
+        self._set_compact_numeric_input(self.slip_min_throttle_input)
+        tuning_form.addRow("Slip guard min throttle:", self.slip_min_throttle_input)
         self.tuning_group.setCheckable(True)
         self.tuning_group.setChecked(False)
         layout.addWidget(self.tuning_group)
@@ -636,9 +717,9 @@ class MainWindow(QMainWindow):
         self.hotkey_pressed.connect(self._handle_hotkey_press)
         self.hotkey_released.connect(self._handle_hotkey_release)
 
-        # Set up global hotkey listener
-        self._setup_hotkey_listener()
         self._load_app_state()
+        # Set up global hotkey listener after state is loaded so startup log shows saved combo
+        self._setup_hotkey_listener()
         self._refresh_preset_selector()
 
     @Slot()
@@ -666,6 +747,17 @@ class MainWindow(QMainWindow):
             dwell_after_kickdown_s=float(self.dwell_kickdown_input.value()),
             kickdown_throttle_threshold=float(self.kickdown_threshold_input.value()),
             kickdown_max_rpm=float(self.kickdown_max_rpm_input.value()),
+            kickdown_lockout_after_upshift_s=float(self.kickdown_lockout_input.value()),
+            enable_unload_upshift_guard=bool(
+                self.enable_unload_guard_checkbox.isChecked()
+            ),
+            unload_suspension_threshold=float(self.unload_threshold_input.value()),
+            unload_guard_after_detect_s=float(self.unload_guard_duration_input.value()),
+            unload_min_throttle=float(self.unload_min_throttle_input.value()),
+            enable_slip_upshift_guard=bool(self.enable_slip_guard_checkbox.isChecked()),
+            slip_upshift_guard_threshold=float(self.slip_threshold_input.value()),
+            slip_guard_after_detect_s=float(self.slip_guard_duration_input.value()),
+            slip_guard_min_throttle=float(self.slip_min_throttle_input.value()),
         )
 
         thread = QThread(self)
@@ -797,6 +889,23 @@ class MainWindow(QMainWindow):
             "dwell_after_kickdown_s": float(self.dwell_kickdown_input.value()),
             "kickdown_throttle_threshold": float(self.kickdown_threshold_input.value()),
             "kickdown_max_rpm": int(self.kickdown_max_rpm_input.value()),
+            "kickdown_lockout_after_upshift_s": float(
+                self.kickdown_lockout_input.value()
+            ),
+            "enable_unload_upshift_guard": bool(
+                self.enable_unload_guard_checkbox.isChecked()
+            ),
+            "unload_suspension_threshold": float(self.unload_threshold_input.value()),
+            "unload_guard_after_detect_s": float(
+                self.unload_guard_duration_input.value()
+            ),
+            "unload_min_throttle": float(self.unload_min_throttle_input.value()),
+            "enable_slip_upshift_guard": bool(
+                self.enable_slip_guard_checkbox.isChecked()
+            ),
+            "slip_upshift_guard_threshold": float(self.slip_threshold_input.value()),
+            "slip_guard_after_detect_s": float(self.slip_guard_duration_input.value()),
+            "slip_guard_min_throttle": float(self.slip_min_throttle_input.value()),
         }
 
     def _apply_tuning_values(self, values: dict[str, float | int | bool]) -> None:
@@ -853,8 +962,96 @@ class MainWindow(QMainWindow):
         self.kickdown_max_rpm_input.setValue(
             int(values.get("kickdown_max_rpm", self.kickdown_max_rpm_input.value()))
         )
+        self.kickdown_lockout_input.setValue(
+            float(
+                values.get(
+                    "kickdown_lockout_after_upshift_s",
+                    self.kickdown_lockout_input.value(),
+                )
+            )
+        )
+        self.enable_unload_guard_checkbox.setChecked(
+            bool(
+                values.get(
+                    "enable_unload_upshift_guard",
+                    self.enable_unload_guard_checkbox.isChecked(),
+                )
+            )
+        )
+        self.unload_threshold_input.setValue(
+            float(
+                values.get(
+                    "unload_suspension_threshold", self.unload_threshold_input.value()
+                )
+            )
+        )
+        self.unload_guard_duration_input.setValue(
+            float(
+                values.get(
+                    "unload_guard_after_detect_s",
+                    self.unload_guard_duration_input.value(),
+                )
+            )
+        )
+        self.unload_min_throttle_input.setValue(
+            float(
+                values.get(
+                    "unload_min_throttle", self.unload_min_throttle_input.value()
+                )
+            )
+        )
+        self.enable_slip_guard_checkbox.setChecked(
+            bool(
+                values.get(
+                    "enable_slip_upshift_guard",
+                    self.enable_slip_guard_checkbox.isChecked(),
+                )
+            )
+        )
+        self.slip_threshold_input.setValue(
+            float(
+                values.get(
+                    "slip_upshift_guard_threshold", self.slip_threshold_input.value()
+                )
+            )
+        )
+        self.slip_guard_duration_input.setValue(
+            float(
+                values.get(
+                    "slip_guard_after_detect_s", self.slip_guard_duration_input.value()
+                )
+            )
+        )
+        self.slip_min_throttle_input.setValue(
+            float(
+                values.get(
+                    "slip_guard_min_throttle", self.slip_min_throttle_input.value()
+                )
+            )
+        )
+
+    def _canonical_hotkey_key(self, key: object | None) -> object | None:
+        if key is None:
+            return None
+        if isinstance(key, keyboard.Key):
+            if key in (keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r):
+                return keyboard.Key.shift
+            if key in (keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
+                return keyboard.Key.ctrl
+            if key in (keyboard.Key.alt, keyboard.Key.alt_l, keyboard.Key.alt_r):
+                return keyboard.Key.alt
+            return key
+        if isinstance(key, keyboard.KeyCode):
+            if key.char:
+                return keyboard.KeyCode.from_char(key.char.lower())
+            if key.vk is not None:
+                return keyboard.KeyCode.from_vk(int(key.vk))
+        return key
 
     def _key_to_token(self, key: object) -> str:
+        key = self._canonical_hotkey_key(key)
+        if key is None:
+            return ""
         if isinstance(key, keyboard.KeyCode):
             if key.char:
                 return f"char:{key.char}"
@@ -865,17 +1062,26 @@ class MainWindow(QMainWindow):
         return ""
 
     def _token_to_key(self, token: str) -> object | None:
+        token = token.strip()
         if token.startswith("char:"):
             char = token[5:]
-            return keyboard.KeyCode.from_char(char)
+            return self._canonical_hotkey_key(keyboard.KeyCode.from_char(char))
         if token.startswith("vk:"):
             try:
-                return keyboard.KeyCode.from_vk(int(token[3:]))
+                return self._canonical_hotkey_key(
+                    keyboard.KeyCode.from_vk(int(token[3:]))
+                )
             except ValueError:
                 return None
         if token.startswith("key:"):
             name = token[4:]
-            return getattr(keyboard.Key, name, None)
+            key = getattr(keyboard.Key, name, None)
+            return self._canonical_hotkey_key(key)
+        plain_key = getattr(keyboard.Key, token.lower(), None)
+        if plain_key is not None:
+            return self._canonical_hotkey_key(plain_key)
+        if len(token) == 1:
+            return self._canonical_hotkey_key(keyboard.KeyCode.from_char(token.lower()))
         return None
 
     def _collect_app_state(self) -> dict[str, object]:
@@ -932,17 +1138,28 @@ class MainWindow(QMainWindow):
         self.shift_down_key_label.setText(self._shift_down_key_name)
         self.shift_up_key_label.setText(self._shift_up_key_name)
 
+        loaded_hotkeys: list[object] = []
         hotkey_tokens = state.get("hotkey_tokens", [])
         if isinstance(hotkey_tokens, list):
-            keys = [
+            loaded_hotkeys.extend(
                 self._token_to_key(token)
                 for token in hotkey_tokens
                 if isinstance(token, str)
-            ]
-            filtered_keys = [key for key in keys if key is not None]
-            if filtered_keys:
-                self._current_hotkey = frozenset(filtered_keys)
-                self.hotkey_label.setText(f"Hotkey: {self._get_hotkey_name()}")
+            )
+        legacy_hotkey = state.get("hotkey", "")
+        if isinstance(legacy_hotkey, str) and legacy_hotkey.strip():
+            for part in legacy_hotkey.split("+"):
+                key = self._token_to_key(part.strip())
+                if key is not None:
+                    loaded_hotkeys.append(key)
+        filtered_keys = [
+            key
+            for key in (self._canonical_hotkey_key(k) for k in loaded_hotkeys)
+            if key
+        ]
+        if filtered_keys:
+            self._current_hotkey = frozenset(filtered_keys)
+        self.hotkey_label.setText(f"Hotkey: {self._get_hotkey_name()}")
 
         tuning_values = state.get("current_tuning", {})
         if isinstance(tuning_values, dict):
@@ -1182,7 +1399,10 @@ class MainWindow(QMainWindow):
     @Slot(object)
     def _handle_hotkey_press(self, key: object) -> None:
         """Qt main thread: update hotkey state and toggle start/stop safely."""
-        self._currently_pressed_keys.add(key)
+        canonical_key = self._canonical_hotkey_key(key)
+        if canonical_key is None:
+            return
+        self._currently_pressed_keys.add(canonical_key)
 
         if self._recording_shift_key_target is not None:
             if key == keyboard.Key.esc:
@@ -1214,10 +1434,10 @@ class MainWindow(QMainWindow):
                 self._cancel_hotkey_recording()
                 return
 
-            self._hotkey_recording_pressed_keys.add(key)
+            self._hotkey_recording_pressed_keys.add(canonical_key)
 
             # If non-modifier key pressed, use only keys pressed during recording.
-            if key not in self.MODIFIER_KEYS:
+            if canonical_key not in self.MODIFIER_KEYS:
                 self._current_hotkey = frozenset(self._hotkey_recording_pressed_keys)
                 self._recording_hotkey = False
                 self._hotkey_recording_pressed_keys.clear()
@@ -1242,9 +1462,12 @@ class MainWindow(QMainWindow):
     @Slot(object)
     def _handle_hotkey_release(self, key: object) -> None:
         """Qt main thread: clear released key and re-arm combo trigger."""
-        self._currently_pressed_keys.discard(key)
+        canonical_key = self._canonical_hotkey_key(key)
+        if canonical_key is None:
+            return
+        self._currently_pressed_keys.discard(canonical_key)
         if self._recording_hotkey:
-            self._hotkey_recording_pressed_keys.discard(key)
+            self._hotkey_recording_pressed_keys.discard(canonical_key)
         if (
             self._current_hotkey is None
             or self._currently_pressed_keys != self._current_hotkey
