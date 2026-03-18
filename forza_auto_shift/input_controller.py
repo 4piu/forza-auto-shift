@@ -50,6 +50,8 @@ class INPUT(ctypes.Structure):
 class GearInputConfig:
     key_hold_seconds: float = 0.03
     dry_run: bool = False
+    shift_down_scan_code: int = SC_Q
+    shift_up_scan_code: int = SC_E
 
 
 class GearInputController:
@@ -60,10 +62,10 @@ class GearInputController:
         self._send_input = ctypes.windll.user32.SendInput
 
     def shift_up(self) -> None:
-        self._press_scan_key(SC_E)
+        self._press_scan_key(self.config.shift_up_scan_code)
 
     def shift_down(self) -> None:
-        self._press_scan_key(SC_Q)
+        self._press_scan_key(self.config.shift_down_scan_code)
 
     def _press_scan_key(self, scan_code: int) -> None:
         if self.config.dry_run:

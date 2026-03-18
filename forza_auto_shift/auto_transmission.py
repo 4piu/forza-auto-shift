@@ -35,6 +35,8 @@ class AutomaticTransmissionConfig:
     enable_low_speed_recovery_downshift: bool = True
     low_speed_recovery_max_speed_mps: float = 1.0
     low_speed_recovery_rpm_margin: float = 150.0
+    allow_upshift_from_neutral: bool = False
+    allow_reverse_while_moving: bool = False
 
 
 class AdaptiveAutomaticTransmission:
@@ -212,6 +214,9 @@ class AdaptiveAutomaticTransmission:
         throttle: float,
         brake: float,
     ) -> bool:
+        if gear <= 0:
+            return False
+
         upshift_rpm = self._target_upshift_rpm(throttle)
         return (
             gear >= self.config.min_forward_gear
@@ -230,6 +235,9 @@ class AdaptiveAutomaticTransmission:
         throttle: float,
         brake: float,
     ) -> bool:
+        if gear <= 1:
+            return False
+
         downshift_rpm = self._target_downshift_rpm(throttle)
         return (
             gear > self.config.min_forward_gear
