@@ -13,6 +13,7 @@ from pynput import keyboard
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -381,6 +382,16 @@ class MainWindow(QMainWindow):
         keyboard.Key.alt_r,
     }
 
+    @staticmethod
+    def _set_compact_numeric_input(widget: QSpinBox | QDoubleSpinBox) -> None:
+        widget.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        widget.setMaximumWidth(120)
+
+    @staticmethod
+    def _set_compact_form(form: QFormLayout) -> None:
+        form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
+        form.setHorizontalSpacing(10)
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Forza Auto Shift")
@@ -407,16 +418,20 @@ class MainWindow(QMainWindow):
 
         connection_group = QGroupBox("Connection")
         connection_form = QFormLayout(connection_group)
+        self._set_compact_form(connection_form)
         self.listen_address_input = QLineEdit("0.0.0.0")
+        self.listen_address_input.setMaximumWidth(180)
         connection_form.addRow("Listen address:", self.listen_address_input)
         self.port_input = QSpinBox()
         self.port_input.setRange(1, 65535)
         self.port_input.setValue(DEFAULT_TELEMETRY_PORT)
+        self._set_compact_numeric_input(self.port_input)
         connection_form.addRow("UDP port:", self.port_input)
         layout.addWidget(connection_group)
 
         input_group = QGroupBox("Input")
         input_form = QFormLayout(input_group)
+        self._set_compact_form(input_form)
         self.dry_run_checkbox = QCheckBox("Dry Run (no key press)")
         self.dry_run_checkbox.setChecked(True)
         input_form.addRow(self.dry_run_checkbox)
@@ -425,44 +440,56 @@ class MainWindow(QMainWindow):
         input_form.addRow(self.focus_guard_checkbox)
         shift_down_row = QHBoxLayout()
         self.record_shift_down_button = QPushButton("Bind Down Key")
+        self.record_shift_down_button.setFixedWidth(130)
         self.record_shift_down_button.clicked.connect(
             self._start_shift_down_key_recording
         )
-        shift_down_row.addWidget(self.record_shift_down_button)
         self.shift_down_key_label = QLabel(self._shift_down_key_name)
+        self.shift_down_key_label.setMinimumWidth(70)
         shift_down_row.addWidget(self.shift_down_key_label)
+        shift_down_row.addStretch(1)
+        shift_down_row.addWidget(self.record_shift_down_button)
         input_form.addRow("Shift down key:", shift_down_row)
         shift_up_row = QHBoxLayout()
         self.record_shift_up_button = QPushButton("Bind Up Key")
+        self.record_shift_up_button.setFixedWidth(130)
         self.record_shift_up_button.clicked.connect(self._start_shift_up_key_recording)
-        shift_up_row.addWidget(self.record_shift_up_button)
         self.shift_up_key_label = QLabel(self._shift_up_key_name)
+        self.shift_up_key_label.setMinimumWidth(70)
         shift_up_row.addWidget(self.shift_up_key_label)
+        shift_up_row.addStretch(1)
+        shift_up_row.addWidget(self.record_shift_up_button)
         input_form.addRow("Shift up key:", shift_up_row)
         layout.addWidget(input_group)
 
         self.tuning_group = QGroupBox("AT Tuning")
         tuning_form = QFormLayout(self.tuning_group)
+        self._set_compact_form(tuning_form)
         self.upshift_low_input = QSpinBox()
         self.upshift_low_input.setRange(500, 12000)
         self.upshift_low_input.setValue(2800)
+        self._set_compact_numeric_input(self.upshift_low_input)
         tuning_form.addRow("Upshift RPM (low throttle):", self.upshift_low_input)
         self.upshift_high_input = QSpinBox()
         self.upshift_high_input.setRange(1000, 12000)
         self.upshift_high_input.setValue(7000)
+        self._set_compact_numeric_input(self.upshift_high_input)
         tuning_form.addRow("Upshift RPM (high throttle):", self.upshift_high_input)
         self.downshift_low_input = QSpinBox()
         self.downshift_low_input.setRange(500, 12000)
         self.downshift_low_input.setValue(1100)
+        self._set_compact_numeric_input(self.downshift_low_input)
         tuning_form.addRow("Downshift RPM (low throttle):", self.downshift_low_input)
         self.downshift_high_input = QSpinBox()
         self.downshift_high_input.setRange(500, 12000)
         self.downshift_high_input.setValue(3600)
+        self._set_compact_numeric_input(self.downshift_high_input)
         tuning_form.addRow("Downshift RPM (high throttle):", self.downshift_high_input)
         self.cooldown_input = QDoubleSpinBox()
         self.cooldown_input.setRange(0.05, 2.00)
         self.cooldown_input.setSingleStep(0.05)
         self.cooldown_input.setValue(0.35)
+        self._set_compact_numeric_input(self.cooldown_input)
         tuning_form.addRow("Shift cooldown (s):", self.cooldown_input)
         self.enable_dwell_checkbox = QCheckBox("Enable dwell")
         self.enable_dwell_checkbox.setChecked(False)
@@ -471,27 +498,32 @@ class MainWindow(QMainWindow):
         self.dwell_up_input.setRange(0.0, 2.0)
         self.dwell_up_input.setSingleStep(0.05)
         self.dwell_up_input.setValue(0.0)
+        self._set_compact_numeric_input(self.dwell_up_input)
         tuning_form.addRow("Dwell after upshift (s):", self.dwell_up_input)
         self.dwell_down_input = QDoubleSpinBox()
         self.dwell_down_input.setRange(0.0, 2.0)
         self.dwell_down_input.setSingleStep(0.05)
         self.dwell_down_input.setValue(0.0)
+        self._set_compact_numeric_input(self.dwell_down_input)
         tuning_form.addRow("Dwell after downshift (s):", self.dwell_down_input)
         self.dwell_kickdown_input = QDoubleSpinBox()
         self.dwell_kickdown_input.setRange(0.0, 2.0)
         self.dwell_kickdown_input.setSingleStep(0.05)
         self.dwell_kickdown_input.setValue(0.0)
+        self._set_compact_numeric_input(self.dwell_kickdown_input)
         tuning_form.addRow("Dwell after kickdown (s):", self.dwell_kickdown_input)
         self.kickdown_threshold_input = QDoubleSpinBox()
         self.kickdown_threshold_input.setRange(0.0, 1.0)
         self.kickdown_threshold_input.setSingleStep(0.01)
         self.kickdown_threshold_input.setValue(0.88)
+        self._set_compact_numeric_input(self.kickdown_threshold_input)
         tuning_form.addRow(
             "Kickdown throttle threshold:", self.kickdown_threshold_input
         )
         self.kickdown_max_rpm_input = QSpinBox()
         self.kickdown_max_rpm_input.setRange(500, 12000)
         self.kickdown_max_rpm_input.setValue(5200)
+        self._set_compact_numeric_input(self.kickdown_max_rpm_input)
         tuning_form.addRow("Kickdown max RPM:", self.kickdown_max_rpm_input)
         self.tuning_group.setCheckable(True)
         self.tuning_group.setChecked(False)
@@ -507,6 +539,7 @@ class MainWindow(QMainWindow):
         self.log_level_input = QComboBox()
         self.log_level_input.addItems(["DEBUG", "INFO", "WARN", "ERROR"])
         self.log_level_input.setCurrentText("INFO")
+        self.log_level_input.setMaximumWidth(110)
         controls.addWidget(self.log_level_input)
         controls.addStretch(1)
         self.start_button = QPushButton("Start")
@@ -518,8 +551,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.stop_button)
         layout.addLayout(controls)
 
-        self.status_label = QLabel("Status: Idle | Telemetry: Waiting | Focus: N/A")
-        layout.addWidget(self.status_label)
+        self.statusBar().showMessage("Status: Idle | Telemetry: Waiting | Focus: N/A")
 
         divider = QFrame()
         divider.setFrameShape(QFrame.HLine)
@@ -621,7 +653,7 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def set_status(self, status: str) -> None:
-        self.status_label.setText(f"Status: {status}")
+        self.statusBar().showMessage(f"Status: {status}")
 
     @Slot()
     def on_worker_finished(self) -> None:
