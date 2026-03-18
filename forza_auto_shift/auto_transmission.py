@@ -38,6 +38,14 @@ class AutomaticTransmissionConfig:
     low_speed_recovery_rpm_margin: float = 150.0
     allow_upshift_from_neutral: bool = False
     allow_reverse_while_moving: bool = False
+    enable_unload_upshift_guard: bool = True
+    unload_suspension_threshold: float = 0.12
+    unload_guard_after_detect_s: float = 0.35
+    unload_min_throttle: float = 0.45
+    enable_slip_upshift_guard: bool = True
+    slip_upshift_guard_threshold: float = 0.28
+    slip_guard_after_detect_s: float = 0.30
+    slip_guard_min_throttle: float = 0.45
 
 
 class AdaptiveAutomaticTransmission:
@@ -52,6 +60,7 @@ class AdaptiveAutomaticTransmission:
         self._smoothed_throttle = 0.0
         self._last_shift_kind: str | None = None
         self.last_decision_reason: str = ""
+        self._upshift_lockout_until = 0.0
 
     def update(self, packet: TelemetryPacket, now: float | None = None) -> str | None:
         self.last_decision_reason = ""
@@ -93,6 +102,9 @@ class AdaptiveAutomaticTransmission:
         rpm = packet.current_rpm
         idle_rpm = float(packet.values.get("EngineIdleRpm", rpm))
 
+        self._update_unload_upshift_guard(packet=packet, throttle=throttle, now=now)
+        self._update_slip_upshift_guard(packet=packet, throttle=throttle, now=now)
+
         if self._should_low_speed_recovery_downshift(
             gear=gear,
             speed=speed,
@@ -112,12 +124,13 @@ class AdaptiveAutomaticTransmission:
             self.last_decision_reason = f"kickdown(thr={throttle:.2f}>={self.config.kickdown_throttle_threshold:.2f},rpm={rpm:.0f}<={self.config.kickdown_max_rpm:.0f})"
             return "downshift"
 
-        if self._should_upshift(
-            gear=gear, rpm=rpm, speed=speed, throttle=throttle, brake=brake
-        ):
-            self._mark_shift(now, shift_kind="upshift")
-            self.last_decision_reason = f"upshift(rpm={rpm:.0f}>={self._target_upshift_rpm(throttle):.0f},thr={throttle:.2f})"
-            return "upshift"
+        if not self._is_upshift_locked_out(now):
+            if self._should_upshift(
+                gear=gear, rpm=rpm, speed=speed, throttle=throttle, brake=brake
+            ):
+                self._mark_shift(now, shift_kind="upshift")
+                self.last_decision_reason = f"upshift(rpm={rpm:.0f}>={self._target_upshift_rpm(throttle):.0f},thr={throttle:.2f})"
+                return "upshift"
 
         if self._should_downshift(
             gear=gear,
@@ -162,6 +175,89 @@ class AdaptiveAutomaticTransmission:
         return (
             now - self._last_shift_time
         ) < self.config.kickdown_lockout_after_upshift_s
+
+    def _is_upshift_locked_out(self, now: float) -> bool:
+        return now < self._upshift_lockout_until
+
+    def _update_unload_upshift_guard(
+        self,
+        packet: TelemetryPacket,
+        throttle: float,
+        now: float,
+    ) -> None:
+        if not self.config.enable_unload_upshift_guard:
+            return
+        if throttle < self.config.unload_min_throttle:
+            return
+        if not self._is_unloaded_from_suspension(packet):
+            return
+        self._upshift_lockout_until = max(
+            self._upshift_lockout_until,
+            now + self.config.unload_guard_after_detect_s,
+        )
+
+    def _update_slip_upshift_guard(
+        self,
+        packet: TelemetryPacket,
+        throttle: float,
+        now: float,
+    ) -> None:
+        if not self.config.enable_slip_upshift_guard:
+            return
+        if throttle < self.config.slip_guard_min_throttle:
+            return
+
+        max_slip = self._max_driven_tire_slip(packet)
+        if max_slip < self.config.slip_upshift_guard_threshold:
+            return
+
+        self._upshift_lockout_until = max(
+            self._upshift_lockout_until,
+            now + self.config.slip_guard_after_detect_s,
+        )
+
+    def _is_unloaded_from_suspension(self, packet: TelemetryPacket) -> bool:
+        values = packet.values
+        fields = (
+            "NormalizedSuspensionTravelFrontLeft",
+            "NormalizedSuspensionTravelFrontRight",
+            "NormalizedSuspensionTravelRearLeft",
+            "NormalizedSuspensionTravelRearRight",
+        )
+        suspension_values: list[float] = []
+        for field_name in fields:
+            raw = values.get(field_name)
+            if raw is None:
+                return False
+            suspension_values.append(float(raw))
+
+        max_travel = max(suspension_values)
+        return max_travel <= self.config.unload_suspension_threshold
+
+    def _max_driven_tire_slip(self, packet: TelemetryPacket) -> float:
+        values = packet.values
+
+        front_fields = ("TireSlipRatioFrontLeft", "TireSlipRatioFrontRight")
+        rear_fields = ("TireSlipRatioRearLeft", "TireSlipRatioRearRight")
+
+        drivetrain = int(values.get("DrivetrainType", 2))
+        if drivetrain == 0:
+            fields = front_fields
+        elif drivetrain == 1:
+            fields = rear_fields
+        else:
+            fields = front_fields + rear_fields
+
+        max_abs_slip = 0.0
+        for field_name in fields:
+            raw = values.get(field_name)
+            if raw is None:
+                continue
+            slip = abs(float(raw))
+            if slip > max_abs_slip:
+                max_abs_slip = slip
+
+        return max_abs_slip
 
     def _normalize_pedal(self, raw: int | None) -> float:
         if raw is None:
