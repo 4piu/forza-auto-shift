@@ -8,6 +8,8 @@ import threading
 import time
 import ctypes
 import os
+import json
+from pathlib import Path
 
 from pynput import keyboard
 
@@ -56,6 +58,7 @@ LOG_LEVEL_ORDER = {
     "ERROR": 40,
 }
 MAPVK_VK_TO_VSC = 0
+APP_STATE_FILE_NAME = "forza_auto_shift_state.json"
 
 SPECIAL_KEY_VK_MAP = {
     keyboard.Key.space: 0x20,
@@ -98,6 +101,48 @@ SPECIAL_KEY_VK_MAP = {
 
 # Default hotkey for toggle start/stop
 DEFAULT_HOTKEY = keyboard.Key.f12
+
+BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, float | int | bool]] = {
+    "street": {
+        "upshift_rpm_low_throttle": 2600,
+        "upshift_rpm_high_throttle": 6200,
+        "downshift_rpm_low_throttle": 1050,
+        "downshift_rpm_high_throttle": 3100,
+        "min_time_between_shifts": 0.42,
+        "enable_per_gear_dwell": True,
+        "dwell_after_upshift_s": 0.35,
+        "dwell_after_downshift_s": 0.45,
+        "dwell_after_kickdown_s": 0.60,
+        "kickdown_throttle_threshold": 0.92,
+        "kickdown_max_rpm": 4800,
+    },
+    "sports": {
+        "upshift_rpm_low_throttle": 2900,
+        "upshift_rpm_high_throttle": 7000,
+        "downshift_rpm_low_throttle": 1200,
+        "downshift_rpm_high_throttle": 3600,
+        "min_time_between_shifts": 0.35,
+        "enable_per_gear_dwell": True,
+        "dwell_after_upshift_s": 0.25,
+        "dwell_after_downshift_s": 0.35,
+        "dwell_after_kickdown_s": 0.45,
+        "kickdown_throttle_threshold": 0.88,
+        "kickdown_max_rpm": 5400,
+    },
+    "race": {
+        "upshift_rpm_low_throttle": 3300,
+        "upshift_rpm_high_throttle": 7600,
+        "downshift_rpm_low_throttle": 1450,
+        "downshift_rpm_high_throttle": 4300,
+        "min_time_between_shifts": 0.28,
+        "enable_per_gear_dwell": True,
+        "dwell_after_upshift_s": 0.10,
+        "dwell_after_downshift_s": 0.20,
+        "dwell_after_kickdown_s": 0.25,
+        "kickdown_throttle_threshold": 0.82,
+        "kickdown_max_rpm": 6200,
+    },
+}
 
 FORZA_PROCESS_NAMES = {
     "forzahorizon4.exe",
@@ -410,6 +455,10 @@ class MainWindow(QMainWindow):
         self._shift_up_scan_code = SC_E
         self._shift_down_key_name = "Q"
         self._shift_up_key_name = "E"
+        self._preset_store: dict[str, dict[str, float | int | bool | str]] = {}
+        self._active_preset_name = ""
+        self._suppress_preset_auto_apply = False
+        self._state_file_path = Path.cwd() / APP_STATE_FILE_NAME
 
         root = QWidget(self)
         self.setCentralWidget(root)
@@ -529,6 +578,27 @@ class MainWindow(QMainWindow):
         self.tuning_group.setChecked(False)
         layout.addWidget(self.tuning_group)
 
+        presets_group = QGroupBox("Presets")
+        presets_form = QFormLayout(presets_group)
+        self._set_compact_form(presets_form)
+        self.preset_selector = QComboBox()
+        self.preset_selector.setMaximumWidth(220)
+        self.preset_selector.currentTextChanged.connect(self._on_preset_selected)
+        presets_form.addRow("Saved preset:", self.preset_selector)
+        self.preset_name_input = QLineEdit()
+        self.preset_name_input.setMaximumWidth(220)
+        self.preset_name_input.setPlaceholderText("Preset name")
+        presets_form.addRow("New preset name:", self.preset_name_input)
+        preset_actions = QHBoxLayout()
+        self.preset_save_button = QPushButton("Save Current")
+        self.preset_save_button.clicked.connect(self._save_current_as_preset)
+        preset_actions.addWidget(self.preset_save_button)
+        self.preset_delete_button = QPushButton("Delete")
+        self.preset_delete_button.clicked.connect(self._delete_selected_preset)
+        preset_actions.addWidget(self.preset_delete_button)
+        presets_form.addRow("Actions:", preset_actions)
+        layout.addWidget(presets_group)
+
         controls = QHBoxLayout()
         self.record_hotkey_button = QPushButton("Record Hotkey")
         self.record_hotkey_button.clicked.connect(self._start_hotkey_recording)
@@ -567,6 +637,8 @@ class MainWindow(QMainWindow):
 
         # Set up global hotkey listener
         self._setup_hotkey_listener()
+        self._load_app_state()
+        self._refresh_preset_selector()
 
     @Slot()
     def start_worker(self) -> None:
@@ -627,6 +699,10 @@ class MainWindow(QMainWindow):
         self.record_shift_down_button.setEnabled(False)
         self.record_shift_up_button.setEnabled(False)
         self.tuning_group.setEnabled(False)
+        self.preset_selector.setEnabled(False)
+        self.preset_name_input.setEnabled(False)
+        self.preset_save_button.setEnabled(False)
+        self.preset_delete_button.setEnabled(False)
         self.log_level_input.setEnabled(False)
         self.record_hotkey_button.setEnabled(False)
         self.start_button.setEnabled(False)
@@ -667,10 +743,15 @@ class MainWindow(QMainWindow):
         self.record_shift_down_button.setEnabled(True)
         self.record_shift_up_button.setEnabled(True)
         self.tuning_group.setEnabled(True)
+        self.preset_selector.setEnabled(True)
+        self.preset_name_input.setEnabled(True)
+        self.preset_save_button.setEnabled(True)
+        self.preset_delete_button.setEnabled(True)
         self.log_level_input.setEnabled(True)
         self.record_hotkey_button.setEnabled(True)
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self._save_app_state()
 
     def _get_hotkey_name(self) -> str:
         """Get a friendly name for the current hotkey combination (modifiers first)."""
@@ -701,6 +782,296 @@ class MainWindow(QMainWindow):
             return "+".join(all_parts)
         except Exception:
             return "Unknown"
+
+    def _collect_tuning_values(self) -> dict[str, float | int | bool]:
+        return {
+            "upshift_rpm_low_throttle": int(self.upshift_low_input.value()),
+            "upshift_rpm_high_throttle": int(self.upshift_high_input.value()),
+            "downshift_rpm_low_throttle": int(self.downshift_low_input.value()),
+            "downshift_rpm_high_throttle": int(self.downshift_high_input.value()),
+            "min_time_between_shifts": float(self.cooldown_input.value()),
+            "enable_per_gear_dwell": bool(self.enable_dwell_checkbox.isChecked()),
+            "dwell_after_upshift_s": float(self.dwell_up_input.value()),
+            "dwell_after_downshift_s": float(self.dwell_down_input.value()),
+            "dwell_after_kickdown_s": float(self.dwell_kickdown_input.value()),
+            "kickdown_throttle_threshold": float(self.kickdown_threshold_input.value()),
+            "kickdown_max_rpm": int(self.kickdown_max_rpm_input.value()),
+        }
+
+    def _apply_tuning_values(self, values: dict[str, float | int | bool]) -> None:
+        self.upshift_low_input.setValue(
+            int(values.get("upshift_rpm_low_throttle", self.upshift_low_input.value()))
+        )
+        self.upshift_high_input.setValue(
+            int(
+                values.get("upshift_rpm_high_throttle", self.upshift_high_input.value())
+            )
+        )
+        self.downshift_low_input.setValue(
+            int(
+                values.get(
+                    "downshift_rpm_low_throttle", self.downshift_low_input.value()
+                )
+            )
+        )
+        self.downshift_high_input.setValue(
+            int(
+                values.get(
+                    "downshift_rpm_high_throttle", self.downshift_high_input.value()
+                )
+            )
+        )
+        self.cooldown_input.setValue(
+            float(values.get("min_time_between_shifts", self.cooldown_input.value()))
+        )
+        self.enable_dwell_checkbox.setChecked(
+            bool(
+                values.get(
+                    "enable_per_gear_dwell", self.enable_dwell_checkbox.isChecked()
+                )
+            )
+        )
+        self.dwell_up_input.setValue(
+            float(values.get("dwell_after_upshift_s", self.dwell_up_input.value()))
+        )
+        self.dwell_down_input.setValue(
+            float(values.get("dwell_after_downshift_s", self.dwell_down_input.value()))
+        )
+        self.dwell_kickdown_input.setValue(
+            float(
+                values.get("dwell_after_kickdown_s", self.dwell_kickdown_input.value())
+            )
+        )
+        self.kickdown_threshold_input.setValue(
+            float(
+                values.get(
+                    "kickdown_throttle_threshold", self.kickdown_threshold_input.value()
+                )
+            )
+        )
+        self.kickdown_max_rpm_input.setValue(
+            int(values.get("kickdown_max_rpm", self.kickdown_max_rpm_input.value()))
+        )
+
+    def _key_to_token(self, key: object) -> str:
+        if isinstance(key, keyboard.KeyCode):
+            if key.char:
+                return f"char:{key.char}"
+            if key.vk is not None:
+                return f"vk:{key.vk}"
+        if isinstance(key, keyboard.Key):
+            return f"key:{str(key).split('.')[-1]}"
+        return ""
+
+    def _token_to_key(self, token: str) -> object | None:
+        if token.startswith("char:"):
+            char = token[5:]
+            return keyboard.KeyCode.from_char(char)
+        if token.startswith("vk:"):
+            try:
+                return keyboard.KeyCode.from_vk(int(token[3:]))
+            except ValueError:
+                return None
+        if token.startswith("key:"):
+            name = token[4:]
+            return getattr(keyboard.Key, name, None)
+        return None
+
+    def _collect_app_state(self) -> dict[str, object]:
+        hotkey_tokens = [
+            self._key_to_token(k) for k in (self._current_hotkey or frozenset())
+        ]
+        current_tuning = self._collect_tuning_values()
+        return {
+            "listen_address": self.listen_address_input.text().strip(),
+            "udp_port": int(self.port_input.value()),
+            "dry_run": bool(self.dry_run_checkbox.isChecked()),
+            "focus_guard": bool(self.focus_guard_checkbox.isChecked()),
+            "log_level": self.log_level_input.currentText(),
+            "shift_down_scan_code": int(self._shift_down_scan_code),
+            "shift_up_scan_code": int(self._shift_up_scan_code),
+            "shift_down_key_name": self._shift_down_key_name,
+            "shift_up_key_name": self._shift_up_key_name,
+            "hotkey_tokens": [t for t in hotkey_tokens if t],
+            "tuning": current_tuning,
+            "current_tuning": current_tuning,
+            "active_preset": self._active_preset_name,
+            "presets": self._preset_store,
+        }
+
+    def _apply_app_state(self, state: dict[str, object]) -> None:
+        self.listen_address_input.setText(
+            str(state.get("listen_address", self.listen_address_input.text()))
+        )
+        self.port_input.setValue(int(state.get("udp_port", self.port_input.value())))
+        self.dry_run_checkbox.setChecked(
+            bool(state.get("dry_run", self.dry_run_checkbox.isChecked()))
+        )
+        self.focus_guard_checkbox.setChecked(
+            bool(state.get("focus_guard", self.focus_guard_checkbox.isChecked()))
+        )
+        saved_log_level = str(
+            state.get("log_level", self.log_level_input.currentText())
+        )
+        if saved_log_level in LOG_LEVEL_ORDER:
+            self.log_level_input.setCurrentText(saved_log_level)
+
+        self._shift_down_scan_code = int(
+            state.get("shift_down_scan_code", self._shift_down_scan_code)
+        )
+        self._shift_up_scan_code = int(
+            state.get("shift_up_scan_code", self._shift_up_scan_code)
+        )
+        self._shift_down_key_name = str(
+            state.get("shift_down_key_name", self._shift_down_key_name)
+        )
+        self._shift_up_key_name = str(
+            state.get("shift_up_key_name", self._shift_up_key_name)
+        )
+        self.shift_down_key_label.setText(self._shift_down_key_name)
+        self.shift_up_key_label.setText(self._shift_up_key_name)
+
+        hotkey_tokens = state.get("hotkey_tokens", [])
+        if isinstance(hotkey_tokens, list):
+            keys = [
+                self._token_to_key(token)
+                for token in hotkey_tokens
+                if isinstance(token, str)
+            ]
+            filtered_keys = [key for key in keys if key is not None]
+            if filtered_keys:
+                self._current_hotkey = frozenset(filtered_keys)
+                self.hotkey_label.setText(f"Hotkey: {self._get_hotkey_name()}")
+
+        tuning_values = state.get("tuning", {})
+        if isinstance(state.get("current_tuning", {}), dict):
+            tuning_values = state.get("current_tuning", {})
+        if isinstance(tuning_values, dict):
+            self._apply_tuning_values(tuning_values)
+
+        presets = state.get("presets", {})
+        if isinstance(presets, dict):
+            normalized: dict[str, dict[str, float | int | bool | str]] = {}
+            for name, value in presets.items():
+                if isinstance(name, str) and isinstance(value, dict):
+                    normalized[name] = value
+            self._preset_store = normalized
+
+        active_preset = state.get("active_preset", "")
+        if isinstance(active_preset, str):
+            self._active_preset_name = active_preset
+
+    def _load_app_state(self) -> None:
+        for name, template in BUILTIN_PRESET_TEMPLATES.items():
+            self._preset_store.setdefault(name, dict(template))
+
+        if not self._state_file_path.exists():
+            return
+
+        try:
+            with self._state_file_path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                self._apply_app_state(data)
+                self.append_log(f"Loaded app state from {self._state_file_path.name}")
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            self.append_log(f"[WARN] Could not load app state: {exc}")
+
+    def _save_app_state(self) -> None:
+        state = self._collect_app_state()
+        try:
+            with self._state_file_path.open("w", encoding="utf-8") as handle:
+                json.dump(state, handle, indent=2)
+        except OSError as exc:
+            self.append_log(f"[WARN] Could not save app state: {exc}")
+
+    def _refresh_preset_selector(self) -> None:
+        current = self._active_preset_name or self.preset_selector.currentText()
+        self._suppress_preset_auto_apply = True
+        self.preset_selector.blockSignals(True)
+        self.preset_selector.clear()
+        for name in sorted(self._preset_store.keys(), key=str.lower):
+            self.preset_selector.addItem(name)
+        if current:
+            index = self.preset_selector.findText(current)
+            if index >= 0:
+                self.preset_selector.setCurrentIndex(index)
+        self.preset_selector.blockSignals(False)
+        self._suppress_preset_auto_apply = False
+
+    @Slot()
+    def _save_current_as_preset(self) -> None:
+        name = (
+            self.preset_name_input.text().strip()
+            or self.preset_selector.currentText().strip()
+        )
+        if not name:
+            self.append_log("[WARN] Enter a preset name before saving.")
+            return
+        preset_data = {
+            **self._collect_tuning_values(),
+            "shift_down_scan_code": int(self._shift_down_scan_code),
+            "shift_up_scan_code": int(self._shift_up_scan_code),
+            "shift_down_key_name": self._shift_down_key_name,
+            "shift_up_key_name": self._shift_up_key_name,
+        }
+        self._preset_store[name] = preset_data
+        self._active_preset_name = name
+        self._refresh_preset_selector()
+        self.preset_selector.setCurrentText(name)
+        self._save_app_state()
+        self.append_log(f"[INFO] Saved preset '{name}'.")
+
+    @Slot()
+    def _apply_selected_preset(self) -> None:
+        name = self.preset_selector.currentText().strip()
+        if not name or name not in self._preset_store:
+            self.append_log("[WARN] Select a preset to apply.")
+            return
+        preset = self._preset_store[name]
+        self._apply_tuning_values(preset)
+        self._shift_down_scan_code = int(
+            preset.get("shift_down_scan_code", self._shift_down_scan_code)
+        )
+        self._shift_up_scan_code = int(
+            preset.get("shift_up_scan_code", self._shift_up_scan_code)
+        )
+        self._shift_down_key_name = str(
+            preset.get("shift_down_key_name", self._shift_down_key_name)
+        )
+        self._shift_up_key_name = str(
+            preset.get("shift_up_key_name", self._shift_up_key_name)
+        )
+        self.shift_down_key_label.setText(self._shift_down_key_name)
+        self.shift_up_key_label.setText(self._shift_up_key_name)
+        self._active_preset_name = name
+        self._save_app_state()
+        self.append_log(f"[INFO] Applied preset '{name}'.")
+
+    @Slot(str)
+    def _on_preset_selected(self, name: str) -> None:
+        if self._suppress_preset_auto_apply:
+            return
+        if not name or name not in self._preset_store:
+            return
+        self._apply_selected_preset()
+
+    @Slot()
+    def _delete_selected_preset(self) -> None:
+        name = self.preset_selector.currentText().strip()
+        if not name:
+            self.append_log("[WARN] Select a preset to delete.")
+            return
+        if name.lower() in BUILTIN_PRESET_TEMPLATES:
+            self.append_log("[WARN] Built-in presets cannot be deleted.")
+            return
+        if name in self._preset_store:
+            if self._active_preset_name == name:
+                self._active_preset_name = ""
+            del self._preset_store[name]
+            self._refresh_preset_selector()
+            self._save_app_state()
+            self.append_log(f"[INFO] Deleted preset '{name}'.")
 
     @Slot()
     def _start_hotkey_recording(self) -> None:
@@ -908,6 +1279,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._cleanup_hotkey_listener()
+        self._save_app_state()
         if self._worker is not None:
             self._worker.stop()
 
