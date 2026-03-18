@@ -60,10 +60,16 @@ class AdaptiveAutomaticTransmission:
         self._smoothed_throttle = 0.0
         self._last_shift_kind: str | None = None
         self.last_decision_reason: str = ""
+        self.last_upshift_block_reason: str = ""
+        self.last_upshift_target_rpm: float = 0.0
         self._upshift_lockout_until = 0.0
+        self._upshift_lockout_source: str = ""
+        self._unload_guard_condition_active = False
+        self._slip_guard_condition_active = False
 
     def update(self, packet: TelemetryPacket, now: float | None = None) -> str | None:
         self.last_decision_reason = ""
+        self.last_upshift_block_reason = ""
         if now is None:
             now = time.monotonic()
 
@@ -101,6 +107,8 @@ class AdaptiveAutomaticTransmission:
         brake = self._normalize_pedal(packet.brake)
         rpm = packet.current_rpm
         idle_rpm = float(packet.values.get("EngineIdleRpm", rpm))
+        upshift_target_rpm = self._target_upshift_rpm(throttle)
+        self.last_upshift_target_rpm = upshift_target_rpm
 
         self._update_unload_upshift_guard(packet=packet, throttle=throttle, now=now)
         self._update_slip_upshift_guard(packet=packet, throttle=throttle, now=now)
@@ -129,7 +137,7 @@ class AdaptiveAutomaticTransmission:
                 gear=gear, rpm=rpm, speed=speed, throttle=throttle, brake=brake
             ):
                 self._mark_shift(now, shift_kind="upshift")
-                self.last_decision_reason = f"upshift(rpm={rpm:.0f}>={self._target_upshift_rpm(throttle):.0f},thr={throttle:.2f})"
+                self.last_decision_reason = f"upshift(rpm={rpm:.0f}>={upshift_target_rpm:.0f},thr={throttle:.2f})"
                 return "upshift"
 
         if self._should_downshift(
@@ -143,7 +151,64 @@ class AdaptiveAutomaticTransmission:
             self.last_decision_reason = f"map_downshift(rpm={rpm:.0f}<={self._target_downshift_rpm(throttle):.0f},thr={throttle:.2f},brk={brake:.2f})"
             return "downshift"
 
+        if rpm >= upshift_target_rpm and gear >= self.config.min_forward_gear:
+            self.last_upshift_block_reason = self._build_upshift_block_reason(
+                now=now,
+                gear=gear,
+                speed=speed,
+                throttle=throttle,
+                brake=brake,
+                rpm=rpm,
+                upshift_target_rpm=upshift_target_rpm,
+            )
+
         return None
+
+    def _build_upshift_block_reason(
+        self,
+        now: float,
+        gear: int,
+        speed: float,
+        throttle: float,
+        brake: float,
+        rpm: float,
+        upshift_target_rpm: float,
+    ) -> str:
+        if gear >= self.config.max_forward_gear:
+            return f"at_max_gear(gear={gear},max={self.config.max_forward_gear})"
+        if speed < self.config.min_speed_for_upshift_mps:
+            return f"speed_low(speed={speed*3.6:.1f}kmh,min={self.config.min_speed_for_upshift_mps*3.6:.1f}kmh)"
+        if throttle < self.config.min_throttle_for_upshift:
+            return f"throttle_low(thr={throttle:.2f},min={self.config.min_throttle_for_upshift:.2f})"
+        if brake >= self.config.brake_downshift_threshold:
+            return f"brake_active(brk={brake:.2f},th={self.config.brake_downshift_threshold:.2f})"
+        if self._pending_shift:
+            remaining = max(
+                0.0,
+                self.config.pending_shift_timeout - (now - self._pending_shift_started),
+            )
+            return f"pending_shift(timeout_remain={remaining:.2f}s)"
+
+        cooldown_remaining = max(
+            0.0, self.config.min_time_between_shifts - (now - self._last_shift_time)
+        )
+        if cooldown_remaining > 0.0:
+            return f"cooldown(remain={cooldown_remaining:.2f}s)"
+
+        dwell_seconds = self._required_dwell_seconds(gear)
+        dwell_remaining = max(0.0, dwell_seconds - (now - self._last_shift_time))
+        if dwell_remaining > 0.0:
+            return f"dwell(remain={dwell_remaining:.2f}s,last={self._last_shift_kind or 'n/a'})"
+
+        if self._is_upshift_locked_out(now):
+            lockout_remaining = max(0.0, self._upshift_lockout_until - now)
+            source = self._upshift_lockout_source or "guard"
+            return f"upshift_lockout(remain={lockout_remaining:.2f}s,source={source})"
+
+        if rpm < upshift_target_rpm:
+            return f"rpm_below_target(rpm={rpm:.0f},target={upshift_target_rpm:.0f})"
+
+        return "unknown_blocker(check_telemetry_and_config)"
 
     def _mark_shift(self, now: float, shift_kind: str) -> None:
         self._last_shift_time = now
@@ -186,15 +251,21 @@ class AdaptiveAutomaticTransmission:
         now: float,
     ) -> None:
         if not self.config.enable_unload_upshift_guard:
+            self._unload_guard_condition_active = False
             return
-        if throttle < self.config.unload_min_throttle:
-            return
-        if not self._is_unloaded_from_suspension(packet):
-            return
-        self._upshift_lockout_until = max(
-            self._upshift_lockout_until,
-            now + self.config.unload_guard_after_detect_s,
+
+        unload_detected = (
+            throttle >= self.config.unload_min_throttle
+            and self._is_unloaded_from_suspension(packet)
         )
+        if unload_detected and not self._unload_guard_condition_active:
+            self._upshift_lockout_until = max(
+                self._upshift_lockout_until,
+                now + self.config.unload_guard_after_detect_s,
+            )
+            self._upshift_lockout_source = "unload"
+
+        self._unload_guard_condition_active = unload_detected
 
     def _update_slip_upshift_guard(
         self,
@@ -203,18 +274,22 @@ class AdaptiveAutomaticTransmission:
         now: float,
     ) -> None:
         if not self.config.enable_slip_upshift_guard:
-            return
-        if throttle < self.config.slip_guard_min_throttle:
+            self._slip_guard_condition_active = False
             return
 
         max_slip = self._max_driven_tire_slip(packet)
-        if max_slip < self.config.slip_upshift_guard_threshold:
-            return
-
-        self._upshift_lockout_until = max(
-            self._upshift_lockout_until,
-            now + self.config.slip_guard_after_detect_s,
+        slip_detected = (
+            throttle >= self.config.slip_guard_min_throttle
+            and max_slip >= self.config.slip_upshift_guard_threshold
         )
+        if slip_detected and not self._slip_guard_condition_active:
+            self._upshift_lockout_until = max(
+                self._upshift_lockout_until,
+                now + self.config.slip_guard_after_detect_s,
+            )
+            self._upshift_lockout_source = f"slip(max={max_slip:.2f},th={self.config.slip_upshift_guard_threshold:.2f})"
+
+        self._slip_guard_condition_active = slip_detected
 
     def _is_unloaded_from_suspension(self, packet: TelemetryPacket) -> bool:
         values = packet.values

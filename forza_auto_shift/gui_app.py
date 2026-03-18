@@ -329,6 +329,7 @@ class AutoShiftWorker(QObject):
         packet_count = 0
         last_packet_type = ""
         last_packet_time = time.monotonic()
+        last_upshift_block_log_time = 0.0
 
         try:
             with TelemetryListener(
@@ -421,6 +422,17 @@ class AutoShiftWorker(QObject):
                             "INFO",
                             f"[{packet_count}] SHIFT DOWN | gear={packet.gear} rpm={packet.current_rpm:.0f} speed={packet.speed_kmh or 0.0:.1f} km/h | reason={reason}",
                         )
+                    elif at.last_upshift_block_reason:
+                        now = time.monotonic()
+                        if now - last_upshift_block_log_time >= 0.80:
+                            target = at.last_upshift_target_rpm
+                            rpm = packet.current_rpm
+                            if target > 0.0 and rpm >= (target + 100.0):
+                                self._log(
+                                    "WARN",
+                                    f"[{packet_count}] UPSHIFT BLOCKED | gear={packet.gear} rpm={rpm:.0f} target={target:.0f} speed={packet.speed_kmh or 0.0:.1f} km/h | reason={at.last_upshift_block_reason}",
+                                )
+                                last_upshift_block_log_time = now
         except OSError as exc:
             self._log("ERROR", f"Listener error: {exc}")
         finally:
