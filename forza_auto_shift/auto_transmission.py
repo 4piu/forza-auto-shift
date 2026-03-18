@@ -25,6 +25,7 @@ class AutomaticTransmissionConfig:
     brake_downshift_threshold: float = 0.08
     kickdown_throttle_threshold: float = 0.88
     kickdown_max_rpm: float = 5200.0
+    kickdown_lockout_after_upshift_s: float = 1.10
     max_pedal_value: int = 255
     throttle_smoothing_alpha: float = 0.30
     enable_per_gear_dwell: bool = False
@@ -50,8 +51,10 @@ class AdaptiveAutomaticTransmission:
         self._pending_shift_started = 0.0
         self._smoothed_throttle = 0.0
         self._last_shift_kind: str | None = None
+        self.last_decision_reason: str = ""
 
     def update(self, packet: TelemetryPacket, now: float | None = None) -> str | None:
+        self.last_decision_reason = ""
         if now is None:
             now = time.monotonic()
 
@@ -95,18 +98,25 @@ class AdaptiveAutomaticTransmission:
             speed=speed,
             rpm=rpm,
             idle_rpm=idle_rpm,
+            brake=brake,
         ):
             self._mark_shift(now, shift_kind="recovery_downshift")
+            recovery_rpm_limit = idle_rpm + self.config.low_speed_recovery_rpm_margin
+            self.last_decision_reason = f"recovery(speed={speed*3.6:.1f}kmh,rpm={rpm:.0f},limit={recovery_rpm_limit:.0f},brk={brake:.2f})"
             return "downshift"
 
-        if self._should_kickdown(gear=gear, rpm=rpm, speed=speed, throttle=throttle):
+        if self._is_kickdown_locked_out(now):
+            pass
+        elif self._should_kickdown(gear=gear, rpm=rpm, speed=speed, throttle=throttle):
             self._mark_shift(now, shift_kind="kickdown")
+            self.last_decision_reason = f"kickdown(thr={throttle:.2f}>={self.config.kickdown_throttle_threshold:.2f},rpm={rpm:.0f}<={self.config.kickdown_max_rpm:.0f})"
             return "downshift"
 
         if self._should_upshift(
             gear=gear, rpm=rpm, speed=speed, throttle=throttle, brake=brake
         ):
             self._mark_shift(now, shift_kind="upshift")
+            self.last_decision_reason = f"upshift(rpm={rpm:.0f}>={self._target_upshift_rpm(throttle):.0f},thr={throttle:.2f})"
             return "upshift"
 
         if self._should_downshift(
@@ -117,6 +127,7 @@ class AdaptiveAutomaticTransmission:
             brake=brake,
         ):
             self._mark_shift(now, shift_kind="downshift")
+            self.last_decision_reason = f"map_downshift(rpm={rpm:.0f}<={self._target_downshift_rpm(throttle):.0f},thr={throttle:.2f},brk={brake:.2f})"
             return "downshift"
 
         return None
@@ -144,6 +155,13 @@ class AdaptiveAutomaticTransmission:
 
         gear_override = self.config.per_gear_dwell_overrides.get(current_gear, 0.0)
         return max(base_dwell, gear_override)
+
+    def _is_kickdown_locked_out(self, now: float) -> bool:
+        if self._last_shift_kind != "upshift":
+            return False
+        return (
+            now - self._last_shift_time
+        ) < self.config.kickdown_lockout_after_upshift_s
 
     def _normalize_pedal(self, raw: int | None) -> float:
         if raw is None:
@@ -195,6 +213,7 @@ class AdaptiveAutomaticTransmission:
         speed: float,
         rpm: float,
         idle_rpm: float,
+        brake: float,
     ) -> bool:
         if not self.config.enable_low_speed_recovery_downshift:
             return False
@@ -204,6 +223,7 @@ class AdaptiveAutomaticTransmission:
             gear > self.config.min_forward_gear
             and speed <= self.config.low_speed_recovery_max_speed_mps
             and rpm <= recovery_rpm_limit
+            and brake < self.config.brake_downshift_threshold
         )
 
     def _should_upshift(

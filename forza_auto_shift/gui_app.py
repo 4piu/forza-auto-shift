@@ -113,8 +113,8 @@ BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, float | int | bool]] = {
         "dwell_after_upshift_s": 0.35,
         "dwell_after_downshift_s": 0.45,
         "dwell_after_kickdown_s": 0.60,
-        "kickdown_throttle_threshold": 0.92,
-        "kickdown_max_rpm": 4800,
+        "kickdown_throttle_threshold": 0.95,
+        "kickdown_max_rpm": 4300,
     },
     "sports": {
         "upshift_rpm_low_throttle": 2900,
@@ -367,6 +367,7 @@ class AutoShiftWorker(QObject):
                         continue
 
                     action = at.update(packet)
+                    reason = at.last_decision_reason or "n/a"
                     if action == "upshift":
                         if self.require_focus_guard and not self.dry_run:
                             if self._focus_state != "Active":
@@ -378,7 +379,7 @@ class AutoShiftWorker(QObject):
                         input_controller.shift_up()
                         self._log(
                             "INFO",
-                            f"[{packet_count}] SHIFT UP | gear={packet.gear} rpm={packet.current_rpm:.0f} speed={packet.speed_kmh or 0.0:.1f} km/h",
+                            f"[{packet_count}] SHIFT UP | gear={packet.gear} rpm={packet.current_rpm:.0f} speed={packet.speed_kmh or 0.0:.1f} km/h | reason={reason}",
                         )
                     elif action == "downshift":
                         if self.require_focus_guard and not self.dry_run:
@@ -391,7 +392,7 @@ class AutoShiftWorker(QObject):
                         input_controller.shift_down()
                         self._log(
                             "INFO",
-                            f"[{packet_count}] SHIFT DOWN | gear={packet.gear} rpm={packet.current_rpm:.0f} speed={packet.speed_kmh or 0.0:.1f} km/h",
+                            f"[{packet_count}] SHIFT DOWN | gear={packet.gear} rpm={packet.current_rpm:.0f} speed={packet.speed_kmh or 0.0:.1f} km/h | reason={reason}",
                         )
         except OSError as exc:
             self._log("ERROR", f"Listener error: {exc}")
@@ -883,6 +884,7 @@ class MainWindow(QMainWindow):
         ]
         current_tuning = self._collect_tuning_values()
         return {
+            "schema_version": 2,
             "listen_address": self.listen_address_input.text().strip(),
             "udp_port": int(self.port_input.value()),
             "dry_run": bool(self.dry_run_checkbox.isChecked()),
@@ -893,7 +895,6 @@ class MainWindow(QMainWindow):
             "shift_down_key_name": self._shift_down_key_name,
             "shift_up_key_name": self._shift_up_key_name,
             "hotkey_tokens": [t for t in hotkey_tokens if t],
-            "tuning": current_tuning,
             "current_tuning": current_tuning,
             "active_preset": self._active_preset_name,
             "presets": self._preset_store,
@@ -943,9 +944,7 @@ class MainWindow(QMainWindow):
                 self._current_hotkey = frozenset(filtered_keys)
                 self.hotkey_label.setText(f"Hotkey: {self._get_hotkey_name()}")
 
-        tuning_values = state.get("tuning", {})
-        if isinstance(state.get("current_tuning", {}), dict):
-            tuning_values = state.get("current_tuning", {})
+        tuning_values = state.get("current_tuning", {})
         if isinstance(tuning_values, dict):
             self._apply_tuning_values(tuning_values)
 
@@ -963,7 +962,7 @@ class MainWindow(QMainWindow):
 
     def _load_app_state(self) -> None:
         for name, template in BUILTIN_PRESET_TEMPLATES.items():
-            self._preset_store.setdefault(name, dict(template))
+            self._preset_store[name] = dict(template)
 
         if not self._state_file_path.exists():
             return
@@ -973,6 +972,8 @@ class MainWindow(QMainWindow):
                 data = json.load(handle)
             if isinstance(data, dict):
                 self._apply_app_state(data)
+                for name, template in BUILTIN_PRESET_TEMPLATES.items():
+                    self._preset_store[name] = dict(template)
                 self.append_log(f"Loaded app state from {self._state_file_path.name}")
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             self.append_log(f"[WARN] Could not load app state: {exc}")
