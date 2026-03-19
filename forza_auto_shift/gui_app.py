@@ -25,9 +25,11 @@ from PySide6.QtWidgets import (
     QFrame,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -62,6 +64,7 @@ LOG_LEVEL_ORDER = {
 }
 MAPVK_VK_TO_VSC = 0
 APP_STATE_FILE_NAME = "forza_auto_shift_state.json"
+DEFAULT_CAR_PRESET_NAME = "street"
 
 SPECIAL_KEY_VK_MAP = {
     keyboard.Key.space: 0x20,
@@ -244,6 +247,7 @@ class AutoShiftWorker(QObject):
 
     log = Signal(str)
     status = Signal(str)
+    car_detected = Signal(int)
     finished = Signal()
 
     def __init__(
@@ -333,6 +337,7 @@ class AutoShiftWorker(QObject):
         last_packet_type = ""
         last_packet_time = time.monotonic()
         last_upshift_block_log_time = 0.0
+        last_car_ordinal: int | None = None
 
         try:
             with TelemetryListener(
@@ -396,6 +401,13 @@ class AutoShiftWorker(QObject):
 
                     if not packet.is_race_on:
                         continue
+
+                    raw_car_ordinal = packet.values.get("CarOrdinal")
+                    if raw_car_ordinal is not None:
+                        car_ordinal = int(raw_car_ordinal)
+                        if car_ordinal > 0 and car_ordinal != last_car_ordinal:
+                            last_car_ordinal = car_ordinal
+                            self.car_detected.emit(car_ordinal)
 
                     action = at.update(packet)
                     reason = at.last_decision_reason or "n/a"
@@ -573,6 +585,10 @@ class MainWindow(QMainWindow):
         self._shift_up_key_name = "E"
         self._preset_store: dict[str, dict[str, float | int | bool | str]] = {}
         self._active_preset_name = ""
+        self._car_preset_map: dict[str, str] = {}
+        self._car_binding_preset_combos: list[QComboBox] = []
+        self._car_binding_remove_buttons: list[QPushButton] = []
+        self._suppress_car_binding_updates = False
         self._suppress_preset_auto_apply = False
         self._state_file_path = Path.cwd() / APP_STATE_FILE_NAME
 
@@ -804,13 +820,9 @@ class MainWindow(QMainWindow):
         self.preset_selector = QComboBox()
         self.preset_selector.setMaximumWidth(220)
         self.preset_selector.currentTextChanged.connect(self._on_preset_selected)
-        presets_form.addRow("Saved preset:", self.preset_selector)
-        self.preset_name_input = QLineEdit()
-        self.preset_name_input.setMaximumWidth(220)
-        self.preset_name_input.setPlaceholderText("Preset name")
-        presets_form.addRow("New preset name:", self.preset_name_input)
+        presets_form.addRow("Default preset:", self.preset_selector)
         preset_actions = QHBoxLayout()
-        self.preset_save_button = QPushButton("Save Current")
+        self.preset_save_button = QPushButton("Save Tuning Preset")
         self.preset_save_button.clicked.connect(self._save_current_as_preset)
         preset_actions.addWidget(self.preset_save_button)
         self.preset_delete_button = QPushButton("Delete")
@@ -818,6 +830,12 @@ class MainWindow(QMainWindow):
         preset_actions.addWidget(self.preset_delete_button)
         presets_form.addRow("Actions:", preset_actions)
         presets_layout.addWidget(presets_group)
+
+        car_group = QGroupBox("Car Preset Assignments")
+        car_group_layout = QVBoxLayout(car_group)
+        self.car_binding_rows_layout = QVBoxLayout()
+        car_group_layout.addLayout(self.car_binding_rows_layout)
+        presets_layout.addWidget(car_group)
         presets_layout.addStretch()
         tabs.addTab(presets_widget, "Presets")
 
@@ -932,6 +950,7 @@ class MainWindow(QMainWindow):
         thread.started.connect(worker.run)
         worker.log.connect(self.append_log)
         worker.status.connect(self.set_status)
+        worker.car_detected.connect(self._on_car_detected)
         worker.finished.connect(self.on_worker_finished)
         worker.finished.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
@@ -978,8 +997,11 @@ class MainWindow(QMainWindow):
         self.slip_min_throttle_input.setEnabled(enabled)
         # Presets tab
         self.preset_selector.setEnabled(enabled)
-        self.preset_name_input.setEnabled(enabled)
         self.preset_save_button.setEnabled(enabled)
+        for combo in self._car_binding_preset_combos:
+            combo.setEnabled(enabled)
+        for button in self._car_binding_remove_buttons:
+            button.setEnabled(enabled)
         if enabled:
             self._update_preset_delete_button_state()
         else:
@@ -1300,6 +1322,7 @@ class MainWindow(QMainWindow):
             "current_tuning": current_tuning,
             "active_preset": self._active_preset_name,
             "presets": self._preset_store,
+            "car_presets": self._car_preset_map,
         }
 
     def _apply_app_state(self, state: dict[str, object]) -> None:
@@ -1369,6 +1392,14 @@ class MainWindow(QMainWindow):
                     normalized[name] = value
             self._preset_store = normalized
 
+        car_presets = state.get("car_presets", {})
+        if isinstance(car_presets, dict):
+            normalized_car_map: dict[str, str] = {}
+            for car_id, preset_name in car_presets.items():
+                if isinstance(car_id, str) and isinstance(preset_name, str):
+                    normalized_car_map[car_id] = preset_name
+            self._car_preset_map = normalized_car_map
+
         active_preset = state.get("active_preset", "")
         if isinstance(active_preset, str):
             self._active_preset_name = active_preset
@@ -1387,6 +1418,7 @@ class MainWindow(QMainWindow):
                 self._apply_app_state(data)
                 for name, template in BUILTIN_PRESET_TEMPLATES.items():
                     self._preset_store[name] = dict(template)
+                self._normalize_car_preset_map()
                 self.append_log(f"Loaded app state from {self._state_file_path.name}")
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             self.append_log(f"[WARN] Could not load app state: {exc}")
@@ -1410,9 +1442,139 @@ class MainWindow(QMainWindow):
             index = self.preset_selector.findText(current)
             if index >= 0:
                 self.preset_selector.setCurrentIndex(index)
+            elif self.preset_selector.count() > 0:
+                self.preset_selector.setCurrentIndex(0)
+                self._active_preset_name = self.preset_selector.currentText()
         self.preset_selector.blockSignals(False)
         self._suppress_preset_auto_apply = False
+        self._refresh_car_preset_list()
         self._update_preset_delete_button_state()
+
+    def _default_preset_name(self) -> str:
+        if DEFAULT_CAR_PRESET_NAME in self._preset_store:
+            return DEFAULT_CAR_PRESET_NAME
+        if self._preset_store:
+            return sorted(self._preset_store.keys(), key=str.lower)[0]
+        self._preset_store[DEFAULT_CAR_PRESET_NAME] = dict(
+            BUILTIN_PRESET_TEMPLATES[DEFAULT_CAR_PRESET_NAME]
+        )
+        return DEFAULT_CAR_PRESET_NAME
+
+    def _normalize_car_preset_map(self) -> None:
+        default_preset = self._default_preset_name()
+        for car_id, preset_name in list(self._car_preset_map.items()):
+            if preset_name not in self._preset_store:
+                self._car_preset_map[car_id] = default_preset
+
+    def _clear_layout(self, layout: QVBoxLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+            child_layout = item.layout()
+            if isinstance(child_layout, QVBoxLayout):
+                self._clear_layout(child_layout)
+
+    def _refresh_car_preset_list(self) -> None:
+        self._suppress_car_binding_updates = True
+        self._car_binding_preset_combos.clear()
+        self._car_binding_remove_buttons.clear()
+        self._clear_layout(self.car_binding_rows_layout)
+
+        if not self._car_preset_map:
+            empty_label = QLabel("No cars detected yet.")
+            empty_label.setStyleSheet("color: gray;")
+            self.car_binding_rows_layout.addWidget(empty_label)
+            self._suppress_car_binding_updates = False
+            return
+
+        default_preset = self._default_preset_name()
+        for car_id in sorted(self._car_preset_map.keys(), key=lambda value: int(value)):
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+
+            car_label = QLabel(f"Car {car_id}")
+            car_label.setMinimumWidth(90)
+            row_layout.addWidget(car_label)
+
+            preset_combo = QComboBox()
+            preset_combo.setMinimumWidth(180)
+            for preset_name in sorted(self._preset_store.keys(), key=str.lower):
+                preset_combo.addItem(preset_name)
+            current_preset = self._car_preset_map.get(car_id, default_preset)
+            if preset_combo.findText(current_preset) >= 0:
+                preset_combo.setCurrentText(current_preset)
+            else:
+                preset_combo.setCurrentText(default_preset)
+                self._car_preset_map[car_id] = default_preset
+            preset_combo.currentTextChanged.connect(
+                lambda name, car=car_id: self._on_car_preset_changed(car, name)
+            )
+            self._car_binding_preset_combos.append(preset_combo)
+            row_layout.addWidget(preset_combo)
+
+            remove_button = QPushButton("Remove")
+            remove_button.clicked.connect(
+                lambda _checked=False, car=car_id: self._remove_car_binding(car)
+            )
+            self._car_binding_remove_buttons.append(remove_button)
+            row_layout.addWidget(remove_button)
+
+            row_layout.addStretch(1)
+            self.car_binding_rows_layout.addWidget(row_widget)
+
+        if self._thread is not None:
+            for combo in self._car_binding_preset_combos:
+                combo.setEnabled(False)
+            for button in self._car_binding_remove_buttons:
+                button.setEnabled(False)
+
+        self._suppress_car_binding_updates = False
+
+    @Slot(int)
+    def _on_car_detected(self, car_ordinal: int) -> None:
+        car_id = str(car_ordinal)
+        was_new = car_id not in self._car_preset_map
+        if was_new:
+            default_preset = self._default_preset_name()
+            self._car_preset_map[car_id] = default_preset
+            self._refresh_car_preset_list()
+            self._save_app_state()
+            self.append_log(
+                f"[INFO] New car detected: CarOrdinal={car_id}. Assigned default preset '{default_preset}'."
+            )
+
+        mapped_preset = self._car_preset_map.get(car_id)
+        if mapped_preset and mapped_preset in self._preset_store:
+            if self._thread is None:
+                self._apply_preset_by_name(mapped_preset, log_context=f"car {car_id}")
+            else:
+                self.append_log(
+                    f"[INFO] Car {car_id} matched preset '{mapped_preset}' (will apply on next start)."
+                )
+
+    @Slot(str, str)
+    def _on_car_preset_changed(self, car_id: str, preset_name: str) -> None:
+        if self._suppress_car_binding_updates:
+            return
+        if preset_name not in self._preset_store:
+            return
+        self._car_preset_map[car_id] = preset_name
+        self._save_app_state()
+        self.append_log(f"[INFO] Car {car_id} assigned to preset '{preset_name}'.")
+
+    @Slot(str)
+    def _remove_car_binding(self, car_id: str) -> None:
+        if car_id not in self._car_preset_map:
+            return
+        del self._car_preset_map[car_id]
+        self._refresh_car_preset_list()
+        self._save_app_state()
+        self.append_log(f"[INFO] Removed car assignment for Car {car_id}.")
 
     def _update_preset_delete_button_state(self) -> None:
         name = self.preset_selector.currentText().strip()
@@ -1433,13 +1595,44 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _save_current_as_preset(self) -> None:
-        name = (
-            self.preset_name_input.text().strip()
-            or self.preset_selector.currentText().strip()
+        default_name = self.preset_selector.currentText().strip() or "my-preset"
+        name, ok = QInputDialog.getText(
+            self,
+            "Save Tuning Preset",
+            "Preset name:",
+            text=default_name,
         )
-        if not name:
-            self.append_log("[WARN] Enter a preset name before saving.")
+        if not ok:
             return
+        name = name.strip()
+        if not name:
+            self.append_log("[WARN] Preset name cannot be empty.")
+            return
+        if name.lower() in BUILTIN_PRESET_TEMPLATES:
+            QMessageBox.warning(
+                self,
+                "Built-in Preset",
+                (
+                    f"'{name}' is a built-in preset and cannot be overwritten.\n"
+                    "Please choose a different preset name."
+                ),
+                QMessageBox.StandardButton.Ok,
+            )
+            self.append_log(
+                f"[WARN] Built-in preset '{name}' cannot be overwritten. Choose another name."
+            )
+            return
+        if name in self._preset_store:
+            answer = QMessageBox.question(
+                self,
+                "Overwrite Preset",
+                f"Preset '{name}' already exists. Overwrite it?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self.append_log("[INFO] Preset save canceled.")
+                return
         preset_data = {
             **self._collect_tuning_values(),
             "shift_down_scan_code": int(self._shift_down_scan_code),
@@ -1454,11 +1647,8 @@ class MainWindow(QMainWindow):
         self._save_app_state()
         self.append_log(f"[INFO] Saved preset '{name}'.")
 
-    @Slot()
-    def _apply_selected_preset(self) -> None:
-        name = self.preset_selector.currentText().strip()
+    def _apply_preset_by_name(self, name: str, log_context: str | None = None) -> None:
         if not name or name not in self._preset_store:
-            self.append_log("[WARN] Select a preset to apply.")
             return
         preset = self._preset_store[name]
         self._apply_tuning_values(preset)
@@ -1477,8 +1667,20 @@ class MainWindow(QMainWindow):
         self.shift_down_key_label.setText(self._shift_down_key_name)
         self.shift_up_key_label.setText(self._shift_up_key_name)
         self._active_preset_name = name
+        self.preset_selector.setCurrentText(name)
         self._save_app_state()
-        self.append_log(f"[INFO] Applied preset '{name}'.")
+        if log_context:
+            self.append_log(f"[INFO] Applied preset '{name}' from {log_context}.")
+        else:
+            self.append_log(f"[INFO] Applied preset '{name}'.")
+
+    @Slot()
+    def _apply_selected_preset(self) -> None:
+        name = self.preset_selector.currentText().strip()
+        if not name or name not in self._preset_store:
+            self.append_log("[WARN] Select a preset to apply.")
+            return
+        self._apply_preset_by_name(name)
 
     @Slot(str)
     def _on_preset_selected(self, name: str) -> None:
@@ -1499,8 +1701,31 @@ class MainWindow(QMainWindow):
             self.append_log("[WARN] Built-in presets cannot be deleted.")
             return
         if name in self._preset_store:
+            affected_cars = [
+                car_id
+                for car_id, preset_name in self._car_preset_map.items()
+                if preset_name == name
+            ]
+            if affected_cars:
+                default_preset = self._default_preset_name()
+                answer = QMessageBox.question(
+                    self,
+                    "Delete Preset",
+                    (
+                        f"Preset '{name}' is assigned to {len(affected_cars)} car(s): "
+                        f"{', '.join(sorted(affected_cars, key=lambda value: int(value)))}.\n\n"
+                        f"If deleted, affected cars will be reassigned to '{default_preset}'. Continue?"
+                    ),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
+                for car_id in affected_cars:
+                    self._car_preset_map[car_id] = default_preset
+
             if self._active_preset_name == name:
-                self._active_preset_name = ""
+                self._active_preset_name = self._default_preset_name()
             del self._preset_store[name]
             self._refresh_preset_selector()
             self._save_app_state()
