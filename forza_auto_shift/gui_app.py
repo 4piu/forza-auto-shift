@@ -859,6 +859,16 @@ class MainWindow(QMainWindow):
 
         car_group = QGroupBox("Car Preset Assignments")
         car_group_layout = QVBoxLayout(car_group)
+        car_filter_row = QHBoxLayout()
+        car_filter_row.addWidget(QLabel("Filter:"))
+        self.car_filter_combo = QComboBox()
+        self.car_filter_combo.addItems(["All", "FH4", "FH5", "FM"])
+        self.car_filter_combo.setCurrentText("All")
+        self.car_filter_combo.setMaximumWidth(120)
+        self.car_filter_combo.currentTextChanged.connect(self._on_car_filter_changed)
+        car_filter_row.addWidget(self.car_filter_combo)
+        car_filter_row.addStretch(1)
+        car_group_layout.addLayout(car_filter_row)
         self.car_binding_rows_layout = QVBoxLayout()
         car_group_layout.addLayout(self.car_binding_rows_layout)
         presets_layout.addWidget(car_group)
@@ -1550,6 +1560,10 @@ class MainWindow(QMainWindow):
             if car_key not in self._car_preset_map:
                 del self._car_alias_map[car_key]
 
+    @Slot(str)
+    def _on_car_filter_changed(self, _value: str) -> None:
+        self._refresh_car_preset_list()
+
     def _clear_layout(self, layout: QVBoxLayout) -> None:
         while layout.count():
             item = layout.takeAt(0)
@@ -1586,20 +1600,36 @@ class MainWindow(QMainWindow):
                 numeric_id = 0
             return game_code, numeric_id
 
+        selected_filter = self.car_filter_combo.currentText().strip().upper()
+        filtered_car_keys = []
         for car_key in sorted(self._car_preset_map.keys(), key=_sort_car_key):
+            game_code, _car_id = self._split_car_key(car_key)
+            if selected_filter == "ALL" or game_code == selected_filter:
+                filtered_car_keys.append(car_key)
+
+        if not filtered_car_keys:
+            empty_label = QLabel("No cars in this filter.")
+            empty_label.setStyleSheet("color: gray;")
+            self.car_binding_rows_layout.addWidget(empty_label)
+            self._suppress_car_binding_updates = False
+            return
+
+        for car_key in filtered_car_keys:
             game_code, car_id = self._split_car_key(car_key)
             row_widget = QWidget()
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(8)
 
             alias = self._car_alias_map.get(car_key, "").strip()
             display_name = alias if alias else f"Car {car_id}"
             car_label = QLabel(display_name)
-            car_label.setMinimumWidth(90)
+            car_label.setFixedWidth(210)
             car_label.setToolTip(f"{game_code}-{car_id}")
             row_layout.addWidget(car_label)
 
             alias_button = QPushButton("Rename")
+            alias_button.setFixedWidth(80)
             alias_button.clicked.connect(
                 lambda _checked=False, car_key=car_key: self._rename_car_alias(car_key)
             )
@@ -1607,7 +1637,7 @@ class MainWindow(QMainWindow):
             row_layout.addWidget(alias_button)
 
             preset_combo = QComboBox()
-            preset_combo.setMinimumWidth(180)
+            preset_combo.setFixedWidth(180)
             for preset_name in sorted(self._preset_store.keys(), key=str.lower):
                 preset_combo.addItem(preset_name)
             current_preset = self._car_preset_map.get(car_key, default_preset)
@@ -1623,6 +1653,7 @@ class MainWindow(QMainWindow):
             row_layout.addWidget(preset_combo)
 
             remove_button = QPushButton("Remove")
+            remove_button.setFixedWidth(80)
             remove_button.clicked.connect(
                 lambda _checked=False, car_key=car_key: self._remove_car_binding(
                     car_key
