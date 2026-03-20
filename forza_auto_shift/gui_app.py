@@ -304,6 +304,22 @@ class AutoShiftWorker(QObject):
         if message_level >= current_level:
             self.log.emit(f"[{level}] {message}")
 
+    def _log_at_config(self, context: str) -> None:
+        cfg = self.at_config
+        self._log(
+            "INFO",
+            (
+                f"AT config ({context}): up_low={cfg.upshift_rpm_low_throttle:.0f}, "
+                f"up_high={cfg.upshift_rpm_high_throttle:.0f}, "
+                f"down_low={cfg.downshift_rpm_low_throttle:.0f}, "
+                f"down_high={cfg.downshift_rpm_high_throttle:.0f}, "
+                f"kick_thr={cfg.kickdown_throttle_threshold:.2f}, "
+                f"kick_max={cfg.kickdown_max_rpm:.0f}, "
+                f"cooldown={cfg.min_time_between_shifts:.2f}, "
+                f"dwell={cfg.enable_per_gear_dwell}"
+            ),
+        )
+
     def _refresh_focus_state(self) -> None:
         _title, process_name = _get_foreground_window_title_and_process()
         detected_game = detect_game_code_from_process_name(process_name)
@@ -345,6 +361,7 @@ class AutoShiftWorker(QObject):
             "INFO",
             f"Controls: {self.shift_down_key_name}=gear down, {self.shift_up_key_name}=gear up",
         )
+        self._log_at_config("worker-start")
         self._log("INFO", "-" * 80)
 
         at = AdaptiveAutomaticTransmission(self.at_config)
@@ -495,6 +512,7 @@ class AutoShiftWorker(QObject):
         if self._at_controller is not None:
             self._at_controller.config = config
             self._log("INFO", "Applied AT config update while running.")
+            self._log_at_config("runtime-update")
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -1799,9 +1817,20 @@ class MainWindow(QMainWindow):
                     log_context=f"{normalized_game_code}-{car_id}",
                 )
             if self._thread is not None and self._worker is not None:
-                self.worker_config_update_requested.emit(
-                    self._build_at_config_from_editor()
+                cfg = self._build_at_config_from_editor()
+                self.append_log(
+                    (
+                        "[INFO] Emitting AT config for "
+                        f"{normalized_game_code}-{car_id}: "
+                        f"up_low={cfg.upshift_rpm_low_throttle:.0f}, "
+                        f"up_high={cfg.upshift_rpm_high_throttle:.0f}, "
+                        f"down_low={cfg.downshift_rpm_low_throttle:.0f}, "
+                        f"down_high={cfg.downshift_rpm_high_throttle:.0f}, "
+                        f"kick_thr={cfg.kickdown_throttle_threshold:.2f}, "
+                        f"kick_max={cfg.kickdown_max_rpm:.0f}"
+                    )
                 )
+                self.worker_config_update_requested.emit(cfg)
 
     @Slot(str, str)
     def _on_car_preset_changed(self, car_key: str, preset_name: str) -> None:
