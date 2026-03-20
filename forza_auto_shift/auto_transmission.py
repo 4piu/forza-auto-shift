@@ -28,6 +28,7 @@ class AutomaticTransmissionConfig:
     coast_downshift_idle_rpm_margin: float
     coast_downshift_max_speed_mps: float
     kickdown_throttle_threshold: float
+    kickdown_tip_in_min_delta: float
     kickdown_max_rpm: float
     kickdown_lockout_after_upshift_s: float
     max_pedal_value: int
@@ -62,6 +63,7 @@ class AdaptiveAutomaticTransmission:
         self._pending_shift = False
         self._pending_shift_started = 0.0
         self._smoothed_throttle = 0.0
+        self._last_smoothed_throttle = 0.0
         self._last_shift_kind: str | None = None
         self.last_decision_reason: str = ""
         self.last_upshift_block_reason: str = ""
@@ -108,6 +110,8 @@ class AdaptiveAutomaticTransmission:
 
         speed = packet.speed_mps or 0.0
         throttle = self._update_smoothed_throttle(packet.accel)
+        throttle_delta = max(0.0, throttle - self._last_smoothed_throttle)
+        self._last_smoothed_throttle = throttle
         brake = self._normalize_pedal(packet.brake)
         rpm = packet.current_rpm
         idle_rpm = float(packet.values.get("EngineIdleRpm", rpm))
@@ -147,9 +151,21 @@ class AdaptiveAutomaticTransmission:
 
         if self._is_kickdown_locked_out(now):
             pass
-        elif self._should_kickdown(gear=gear, rpm=rpm, speed=speed, throttle=throttle):
+        elif self._should_kickdown(
+            gear=gear,
+            rpm=rpm,
+            speed=speed,
+            throttle=throttle,
+            throttle_delta=throttle_delta,
+        ):
             self._mark_shift(now, shift_kind="kickdown")
-            self.last_decision_reason = f"kickdown(thr={throttle:.2f}>={self.config.kickdown_throttle_threshold:.2f},rpm={rpm:.0f}<={self.config.kickdown_max_rpm:.0f})"
+            self.last_decision_reason = (
+                "kickdown("
+                f"thr={throttle:.2f}>={self.config.kickdown_throttle_threshold:.2f},"
+                f"dthr={throttle_delta:.2f}>={self.config.kickdown_tip_in_min_delta:.2f},"
+                f"rpm={rpm:.0f}<={self.config.kickdown_max_rpm:.0f}"
+                ")"
+            )
             return "downshift"
 
         if not self._is_upshift_locked_out(now):
@@ -390,12 +406,18 @@ class AdaptiveAutomaticTransmission:
         )
 
     def _should_kickdown(
-        self, gear: int, rpm: float, speed: float, throttle: float
+        self,
+        gear: int,
+        rpm: float,
+        speed: float,
+        throttle: float,
+        throttle_delta: float,
     ) -> bool:
         return (
             gear > self.config.min_forward_gear
             and speed >= self.config.min_speed_for_downshift_mps
             and throttle >= self.config.kickdown_throttle_threshold
+            and throttle_delta >= self.config.kickdown_tip_in_min_delta
             and rpm <= self.config.kickdown_max_rpm
         )
 

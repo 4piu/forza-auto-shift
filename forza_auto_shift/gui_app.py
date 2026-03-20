@@ -86,6 +86,7 @@ DEFAULT_AT_CONFIG_VALUES: dict[str, object] = {
     "coast_downshift_idle_rpm_margin": 320.0,
     "coast_downshift_max_speed_mps": 55.0,
     "kickdown_throttle_threshold": 0.88,
+    "kickdown_tip_in_min_delta": 0.10,
     "kickdown_max_rpm": 5200.0,
     "kickdown_lockout_after_upshift_s": 1.10,
     "max_pedal_value": 255,
@@ -1130,6 +1131,7 @@ class MainWindow(QMainWindow):
                 values["coast_downshift_max_speed_mps"]
             ),
             kickdown_throttle_threshold=float(values["kickdown_throttle_threshold"]),
+            kickdown_tip_in_min_delta=float(values["kickdown_tip_in_min_delta"]),
             kickdown_max_rpm=float(values["kickdown_max_rpm"]),
             kickdown_lockout_after_upshift_s=float(
                 values["kickdown_lockout_after_upshift_s"]
