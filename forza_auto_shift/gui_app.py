@@ -292,6 +292,7 @@ class AutoShiftWorker(QObject):
         self.log_level = log_level
         self._stop_event = threading.Event()
         self._listener: TelemetryListener | None = None
+        self._at_controller: AdaptiveAutomaticTransmission | None = None
         self._run_state = "Idle"
         self._telemetry_state = "Waiting"
         self._focus_state = "N/A"
@@ -347,6 +348,7 @@ class AutoShiftWorker(QObject):
         self._log("INFO", "-" * 80)
 
         at = AdaptiveAutomaticTransmission(self.at_config)
+        self._at_controller = at
         input_controller = GearInputController(
             GearInputConfig(
                 dry_run=self.dry_run,
@@ -479,10 +481,20 @@ class AutoShiftWorker(QObject):
             self._log("ERROR", f"Listener error: {exc}")
         finally:
             self._listener = None
+            self._at_controller = None
             self._run_state = "Stopped"
             self._telemetry_state = "Stopped"
             self._emit_status()
             self.finished.emit()
+
+    @Slot(object)
+    def update_at_config(self, config: object) -> None:
+        if not isinstance(config, AutomaticTransmissionConfig):
+            return
+        self.at_config = config
+        if self._at_controller is not None:
+            self._at_controller.config = config
+            self._log("INFO", "Applied AT config update while running.")
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -567,6 +579,7 @@ class MainWindow(QMainWindow):
 
     hotkey_pressed = Signal(object)
     hotkey_released = Signal(object)
+    worker_config_update_requested = Signal(object)
 
     # Modifier keys to track
     MODIFIER_KEYS = {
@@ -977,7 +990,43 @@ class MainWindow(QMainWindow):
         shift_up_scan_code = self._shift_up_scan_code
         log_level = self.log_level_input.currentText()
 
-        at_config = AutomaticTransmissionConfig(
+        at_config = self._build_at_config_from_editor()
+
+        thread = QThread(self)
+        worker = AutoShiftWorker(
+            bind_host=bind_host,
+            port=port,
+            dry_run=dry_run,
+            require_focus_guard=require_focus_guard,
+            shift_down_scan_code=shift_down_scan_code,
+            shift_up_scan_code=shift_up_scan_code,
+            shift_down_key_name=self._shift_down_key_name,
+            shift_up_key_name=self._shift_up_key_name,
+            at_config=at_config,
+            log_level=log_level,
+        )
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.log.connect(self.append_log)
+        worker.status.connect(self.set_status)
+        worker.car_detected.connect(self._on_car_detected)
+        self.worker_config_update_requested.connect(worker.update_at_config)
+        worker.finished.connect(self.on_worker_finished)
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(thread.deleteLater)
+
+        self._thread = thread
+        self._worker = worker
+
+        self._set_input_controls_enabled(False)
+        self.start_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
+
+        thread.start()
+
+    def _build_at_config_from_editor(self) -> AutomaticTransmissionConfig:
+        return AutomaticTransmissionConfig(
             upshift_rpm_low_throttle=float(self.upshift_low_input.value()),
             upshift_rpm_high_throttle=float(self.upshift_high_input.value()),
             downshift_rpm_low_throttle=float(self.downshift_low_input.value()),
@@ -1001,38 +1050,6 @@ class MainWindow(QMainWindow):
             slip_guard_after_detect_s=float(self.slip_guard_duration_input.value()),
             slip_guard_min_throttle=float(self.slip_min_throttle_input.value()),
         )
-
-        thread = QThread(self)
-        worker = AutoShiftWorker(
-            bind_host=bind_host,
-            port=port,
-            dry_run=dry_run,
-            require_focus_guard=require_focus_guard,
-            shift_down_scan_code=shift_down_scan_code,
-            shift_up_scan_code=shift_up_scan_code,
-            shift_down_key_name=self._shift_down_key_name,
-            shift_up_key_name=self._shift_up_key_name,
-            at_config=at_config,
-            log_level=log_level,
-        )
-        worker.moveToThread(thread)
-
-        thread.started.connect(worker.run)
-        worker.log.connect(self.append_log)
-        worker.status.connect(self.set_status)
-        worker.car_detected.connect(self._on_car_detected)
-        worker.finished.connect(self.on_worker_finished)
-        worker.finished.connect(thread.quit)
-        thread.finished.connect(thread.deleteLater)
-
-        self._thread = thread
-        self._worker = worker
-
-        self._set_input_controls_enabled(False)
-        self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
-
-        thread.start()
 
     def _set_input_controls_enabled(self, enabled: bool) -> None:
         """Enable/disable all input controls but keep tabs switchable."""
@@ -1775,14 +1792,15 @@ class MainWindow(QMainWindow):
 
         mapped_preset = self._car_preset_map.get(car_key)
         if mapped_preset and mapped_preset in self._preset_store:
-            if self._thread is None:
+            current_name = self._active_preset_name.strip()
+            if current_name != mapped_preset:
                 self._apply_preset_by_name(
                     mapped_preset,
                     log_context=f"{normalized_game_code}-{car_id}",
                 )
-            else:
-                self.append_log(
-                    f"[INFO] Car {normalized_game_code}-{car_id} matched preset '{mapped_preset}' (will apply on next start)."
+            if self._thread is not None and self._worker is not None:
+                self.worker_config_update_requested.emit(
+                    self._build_at_config_from_editor()
                 )
 
     @Slot(str, str)
