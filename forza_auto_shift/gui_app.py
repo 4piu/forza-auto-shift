@@ -13,7 +13,7 @@ from pathlib import Path
 
 from pynput import keyboard
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot, QUrl
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -39,6 +39,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+try:
+    from PySide6.QtMultimedia import QSoundEffect
+except Exception:
+    QSoundEffect = None
 
 from .auto_transmission import (
     AdaptiveAutomaticTransmission,
@@ -715,6 +720,9 @@ class MainWindow(QMainWindow):
         self._suppress_car_binding_updates = False
         self._suppress_preset_auto_apply = False
         self._state_file_path = Path.cwd() / APP_STATE_FILE_NAME
+        self._play_worker_chime_enabled = True
+        self._chime_start_effect = None
+        self._chime_stop_effect = None
 
         root = QWidget(self)
         self.setCentralWidget(root)
@@ -1001,6 +1009,24 @@ class MainWindow(QMainWindow):
         presets_layout.addStretch()
         tabs.addTab(presets_widget, "Presets")
 
+        # ===== OPTIONS TAB =====
+        options_widget = QWidget()
+        options_layout = QVBoxLayout(options_widget)
+        options_group = QGroupBox("Audio")
+        options_form = QFormLayout(options_group)
+        self._set_compact_form(options_form)
+        self.play_worker_chime_checkbox = QCheckBox(
+            "Play chime when worker starts/stops"
+        )
+        self.play_worker_chime_checkbox.setChecked(self._play_worker_chime_enabled)
+        self.play_worker_chime_checkbox.toggled.connect(
+            self._on_play_worker_chime_toggled
+        )
+        options_form.addRow(self.play_worker_chime_checkbox)
+        options_layout.addWidget(options_group)
+        options_layout.addStretch()
+        tabs.addTab(options_widget, "Options")
+
         self._settings_tabs = tabs
         main_layout.addWidget(tabs)
 
@@ -1050,6 +1076,7 @@ class MainWindow(QMainWindow):
 
         self.hotkey_pressed.connect(self._handle_hotkey_press)
         self.hotkey_released.connect(self._handle_hotkey_release)
+        self._setup_chime_effects()
 
         self._set_tuning_tooltips()
 
@@ -1105,6 +1132,7 @@ class MainWindow(QMainWindow):
         self.stop_button.setEnabled(True)
 
         thread.start()
+        self._play_worker_chime("start")
 
     def _build_at_config_from_editor(self) -> AutomaticTransmissionConfig:
         values = self._collect_full_tuning_values()
@@ -1201,6 +1229,43 @@ class MainWindow(QMainWindow):
         self.log_level_input.setEnabled(enabled)
         self.record_hotkey_button.setEnabled(enabled)
 
+    def _setup_chime_effects(self) -> None:
+        if QSoundEffect is None:
+            return
+
+        assets_dir = Path(__file__).resolve().parent / "assets"
+        start_path = assets_dir / "on.wav"
+        stop_path = assets_dir / "off.wav"
+
+        if start_path.exists():
+            self._chime_start_effect = QSoundEffect(self)
+            self._chime_start_effect.setSource(
+                QUrl.fromLocalFile(str(start_path.resolve()))
+            )
+            # self._chime_start_effect.setVolume(0.60)
+
+        if stop_path.exists():
+            self._chime_stop_effect = QSoundEffect(self)
+            self._chime_stop_effect.setSource(
+                QUrl.fromLocalFile(str(stop_path.resolve()))
+            )
+            # self._chime_stop_effect.setVolume(0.60)
+
+    def _play_worker_chime(self, event: str) -> None:
+        if not self._play_worker_chime_enabled:
+            return
+
+        effect = (
+            self._chime_start_effect if event == "start" else self._chime_stop_effect
+        )
+        if effect is not None:
+            effect.play()
+
+    @Slot(bool)
+    def _on_play_worker_chime_toggled(self, checked: bool) -> None:
+        self._play_worker_chime_enabled = bool(checked)
+        self._save_app_state()
+
     def _set_tuning_fields_enabled(self, enabled: bool) -> None:
         self.upshift_low_input.setEnabled(enabled)
         self.upshift_high_input.setEnabled(enabled)
@@ -1274,6 +1339,7 @@ class MainWindow(QMainWindow):
         self._set_input_controls_enabled(True)
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self._play_worker_chime("stop")
         self._save_app_state()
 
     def _get_hotkey_name(self) -> str:
@@ -1573,11 +1639,12 @@ class MainWindow(QMainWindow):
                 "car_id": car_id,
             }
         return {
-            "schema_version": 3,
+            "schema_version": 4,
             "listen_address": self.listen_address_input.text().strip(),
             "udp_port": int(self.port_input.value()),
             "dry_run": bool(self.dry_run_checkbox.isChecked()),
             "focus_guard": bool(self.focus_guard_checkbox.isChecked()),
+            "play_worker_chime": bool(self.play_worker_chime_checkbox.isChecked()),
             "log_level": self.log_level_input.currentText(),
             "shift_down_scan_code": int(self._shift_down_scan_code),
             "shift_up_scan_code": int(self._shift_up_scan_code),
@@ -1593,15 +1660,22 @@ class MainWindow(QMainWindow):
 
     def _apply_app_state(self, state: dict[str, object]) -> None:
         schema_version = int(state["schema_version"])
-        if schema_version != 3:
+        if schema_version != 4:
             raise ValueError(
-                f"Unsupported app state schema_version={schema_version}; expected 3"
+                f"Unsupported app state schema_version={schema_version}; expected 4"
             )
 
         self.listen_address_input.setText(str(state["listen_address"]))
         self.port_input.setValue(int(state["udp_port"]))
         self.dry_run_checkbox.setChecked(bool(state["dry_run"]))
         self.focus_guard_checkbox.setChecked(bool(state["focus_guard"]))
+        play_worker_chime = state["play_worker_chime"]
+        if not isinstance(play_worker_chime, bool):
+            raise ValueError("Invalid app state: play_worker_chime must be a bool")
+        self._play_worker_chime_enabled = play_worker_chime
+        self.play_worker_chime_checkbox.blockSignals(True)
+        self.play_worker_chime_checkbox.setChecked(play_worker_chime)
+        self.play_worker_chime_checkbox.blockSignals(False)
         saved_log_level = str(state["log_level"])
         if saved_log_level in LOG_LEVEL_ORDER:
             self.log_level_input.setCurrentText(saved_log_level)
@@ -1723,7 +1797,7 @@ class MainWindow(QMainWindow):
             self.append_log(f"[WARN] Ignoring incompatible app state: {exc}")
             self._save_app_state()
             self.append_log(
-                f"[INFO] Rewrote {self._state_file_path.name} to schema_version=3."
+                f"[INFO] Rewrote {self._state_file_path.name} to schema_version=4."
             )
 
     def _save_app_state(self) -> None:
