@@ -168,7 +168,8 @@ class AdaptiveAutomaticTransmission:
             brake=brake,
         ):
             self._mark_shift(now, shift_kind="downshift")
-            self.last_decision_reason = f"map_downshift(rpm={rpm:.0f}<={self._target_downshift_rpm(throttle):.0f},thr={throttle:.2f},brk={brake:.2f})"
+            demand = max(throttle, brake)
+            self.last_decision_reason = f"map_downshift(rpm={rpm:.0f}<={self._target_downshift_rpm(demand):.0f},thr={throttle:.2f},brk={brake:.2f})"
             return "downshift"
 
         if rpm >= upshift_target_rpm and gear >= self.config.min_forward_gear:
@@ -414,7 +415,6 @@ class AdaptiveAutomaticTransmission:
             gear > self.config.min_forward_gear
             and speed <= self.config.low_speed_recovery_max_speed_mps
             and rpm <= recovery_rpm_limit
-            and brake < self.config.brake_downshift_threshold
         )
 
     def _should_upshift(
@@ -471,7 +471,10 @@ class AdaptiveAutomaticTransmission:
         if gear <= 1:
             return False
 
-        downshift_rpm = self._target_downshift_rpm(throttle)
+        # Use the stronger of throttle or brake demand so braking raises
+        # downshift target RPM and engine braking feels more natural.
+        downshift_demand = max(throttle, brake)
+        downshift_rpm = self._target_downshift_rpm(downshift_demand)
         return (
             gear > self.config.min_forward_gear
             and speed >= self.config.min_speed_for_downshift_mps
