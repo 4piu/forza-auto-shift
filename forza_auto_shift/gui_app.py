@@ -66,6 +66,19 @@ MAPVK_VK_TO_VSC = 0
 APP_STATE_FILE_NAME = "forza_auto_shift_state.json"
 DEFAULT_CAR_PRESET_NAME = "street"
 
+PROCESS_NAME_TO_GAME_CODE = {
+    "forzahorizon4.exe": "FH4",
+    "forzahorizon5.exe": "FH5",
+    "forzamotorsport.exe": "FM",
+}
+
+
+def detect_game_code_from_process_name(process_name: str | None) -> str:
+    if not process_name:
+        return ""
+    return PROCESS_NAME_TO_GAME_CODE.get(process_name.lower(), "")
+
+
 SPECIAL_KEY_VK_MAP = {
     keyboard.Key.space: 0x20,
     keyboard.Key.enter: 0x0D,
@@ -247,7 +260,7 @@ class AutoShiftWorker(QObject):
 
     log = Signal(str)
     status = Signal(str)
-    car_detected = Signal(int)
+    car_detected = Signal(int, str)
     finished = Signal()
 
     def __init__(
@@ -279,6 +292,7 @@ class AutoShiftWorker(QObject):
         self._run_state = "Idle"
         self._telemetry_state = "Waiting"
         self._focus_state = "N/A"
+        self._game_state = "Unknown"
 
     def _log(self, level: str, message: str) -> None:
         current_level = LOG_LEVEL_ORDER.get(self.log_level, LOG_LEVEL_ORDER["INFO"])
@@ -287,18 +301,22 @@ class AutoShiftWorker(QObject):
             self.log.emit(f"[{level}] {message}")
 
     def _refresh_focus_state(self) -> None:
+        _title, process_name = _get_foreground_window_title_and_process()
+        detected_game = detect_game_code_from_process_name(process_name)
+        next_game_state = detected_game or "Unknown"
         if self.dry_run or not self.require_focus_guard:
             next_state = "N/A"
         else:
-            next_state = "Active" if is_game_window_active() else "Blocked"
+            next_state = "Active" if process_name in FORZA_PROCESS_NAMES else "Blocked"
 
-        if next_state != self._focus_state:
+        if next_state != self._focus_state or next_game_state != self._game_state:
             self._focus_state = next_state
+            self._game_state = next_game_state
             self._emit_status()
 
     def _emit_status(self) -> None:
         self.status.emit(
-            f"{self._run_state} | Telemetry: {self._telemetry_state} | Focus: {self._focus_state}"
+            f"{self._run_state} | Telemetry: {self._telemetry_state} | Focus: {self._focus_state} | Game: {self._game_state}"
         )
 
     @Slot()
@@ -308,6 +326,7 @@ class AutoShiftWorker(QObject):
         self._focus_state = (
             "N/A" if self.dry_run or not self.require_focus_guard else "Unknown"
         )
+        self._game_state = "Unknown"
         self._emit_status()
         self._refresh_focus_state()
         bind_text = self.bind_host if self.bind_host else "0.0.0.0"
@@ -407,7 +426,12 @@ class AutoShiftWorker(QObject):
                         car_ordinal = int(raw_car_ordinal)
                         if car_ordinal > 0 and car_ordinal != last_car_ordinal:
                             last_car_ordinal = car_ordinal
-                            self.car_detected.emit(car_ordinal)
+                            self.car_detected.emit(
+                                car_ordinal,
+                                detect_game_code_from_process_name(
+                                    _get_foreground_window_title_and_process()[1]
+                                ),
+                            )
 
                     action = at.update(packet)
                     reason = at.last_decision_reason or "n/a"
@@ -586,7 +610,9 @@ class MainWindow(QMainWindow):
         self._preset_store: dict[str, dict[str, float | int | bool | str]] = {}
         self._active_preset_name = ""
         self._car_preset_map: dict[str, str] = {}
+        self._car_alias_map: dict[str, str] = {}
         self._car_binding_preset_combos: list[QComboBox] = []
+        self._car_binding_alias_buttons: list[QPushButton] = []
         self._car_binding_remove_buttons: list[QPushButton] = []
         self._suppress_car_binding_updates = False
         self._suppress_preset_auto_apply = False
@@ -871,7 +897,9 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.stop_button)
         main_layout.addLayout(controls)
 
-        self.statusBar().showMessage("Status: Idle | Telemetry: Waiting | Focus: N/A")
+        self.statusBar().showMessage(
+            "Status: Idle | Telemetry: Waiting | Focus: N/A | Game: Unknown"
+        )
 
         # ===== LOG VIEW =====
         divider = QFrame()
@@ -1000,6 +1028,8 @@ class MainWindow(QMainWindow):
         self.preset_save_button.setEnabled(enabled)
         for combo in self._car_binding_preset_combos:
             combo.setEnabled(enabled)
+        for button in self._car_binding_alias_buttons:
+            button.setEnabled(enabled)
         for button in self._car_binding_remove_buttons:
             button.setEnabled(enabled)
         if enabled:
@@ -1307,8 +1337,23 @@ class MainWindow(QMainWindow):
             self._key_to_token(k) for k in (self._current_hotkey or frozenset())
         ]
         current_tuning = self._collect_tuning_values()
+        user_presets = {
+            name: preset
+            for name, preset in self._preset_store.items()
+            if name.lower() not in BUILTIN_PRESET_TEMPLATES
+        }
+        cars: dict[str, dict[str, str]] = {}
+        for car_key, preset_name in self._car_preset_map.items():
+            game_code, car_id = self._split_car_key(car_key)
+            alias = self._car_alias_map.get(car_key, "").strip()
+            cars[car_key] = {
+                "preset": preset_name,
+                "alias": alias,
+                "game": game_code,
+                "car_id": car_id,
+            }
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "listen_address": self.listen_address_input.text().strip(),
             "udp_port": int(self.port_input.value()),
             "dry_run": bool(self.dry_run_checkbox.isChecked()),
@@ -1321,8 +1366,8 @@ class MainWindow(QMainWindow):
             "hotkey_tokens": [t for t in hotkey_tokens if t],
             "current_tuning": current_tuning,
             "active_preset": self._active_preset_name,
-            "presets": self._preset_store,
-            "car_presets": self._car_preset_map,
+            "presets": user_presets,
+            "cars": cars,
         }
 
     def _apply_app_state(self, state: dict[str, object]) -> None:
@@ -1392,13 +1437,29 @@ class MainWindow(QMainWindow):
                     normalized[name] = value
             self._preset_store = normalized
 
-        car_presets = state.get("car_presets", {})
-        if isinstance(car_presets, dict):
-            normalized_car_map: dict[str, str] = {}
-            for car_id, preset_name in car_presets.items():
-                if isinstance(car_id, str) and isinstance(preset_name, str):
-                    normalized_car_map[car_id] = preset_name
-            self._car_preset_map = normalized_car_map
+        normalized_car_map: dict[str, str] = {}
+        normalized_alias_map: dict[str, str] = {}
+        cars = state.get("cars", {})
+        if isinstance(cars, dict):
+            for car_key, car_entry in cars.items():
+                if not isinstance(car_key, str) or not isinstance(car_entry, dict):
+                    continue
+                preset_name = car_entry.get("preset", "")
+                alias = car_entry.get("alias", "")
+                game = car_entry.get("game", "")
+                car_id = car_entry.get("car_id", "")
+                if not isinstance(car_id, str) or not car_id.strip():
+                    _existing_game, parsed_car_id = self._split_car_key(car_key)
+                    car_id = parsed_car_id
+
+                if isinstance(preset_name, str) and preset_name and car_id.strip():
+                    normalized_key = self._car_storage_key(str(game), car_id.strip())
+                    normalized_car_map[normalized_key] = preset_name
+                    if isinstance(alias, str) and alias.strip():
+                        normalized_alias_map[normalized_key] = alias.strip()
+
+        self._car_preset_map = normalized_car_map
+        self._car_alias_map = normalized_alias_map
 
         active_preset = state.get("active_preset", "")
         if isinstance(active_preset, str):
@@ -1407,6 +1468,9 @@ class MainWindow(QMainWindow):
     def _load_app_state(self) -> None:
         for name, template in BUILTIN_PRESET_TEMPLATES.items():
             self._preset_store[name] = dict(template)
+
+        if not self._active_preset_name:
+            self._active_preset_name = self._default_preset_name()
 
         if not self._state_file_path.exists():
             return
@@ -1419,6 +1483,8 @@ class MainWindow(QMainWindow):
                 for name, template in BUILTIN_PRESET_TEMPLATES.items():
                     self._preset_store[name] = dict(template)
                 self._normalize_car_preset_map()
+                if self._active_preset_name not in self._preset_store:
+                    self._active_preset_name = self._default_preset_name()
                 self.append_log(f"Loaded app state from {self._state_file_path.name}")
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             self.append_log(f"[WARN] Could not load app state: {exc}")
@@ -1460,11 +1526,29 @@ class MainWindow(QMainWindow):
         )
         return DEFAULT_CAR_PRESET_NAME
 
+    def _normalize_game_code(self, game_code: str) -> str:
+        code = game_code.strip().upper()
+        if code in {"FH4", "FH5", "FM"}:
+            return code
+        return "FORZA"
+
+    def _car_storage_key(self, game_code: str, car_id: str) -> str:
+        return f"{self._normalize_game_code(game_code)}-{car_id.strip()}"
+
+    def _split_car_key(self, car_key: str) -> tuple[str, str]:
+        if "-" in car_key:
+            raw_game, raw_car_id = car_key.split("-", 1)
+            return self._normalize_game_code(raw_game), raw_car_id.strip()
+        return "FORZA", car_key.strip()
+
     def _normalize_car_preset_map(self) -> None:
         default_preset = self._default_preset_name()
-        for car_id, preset_name in list(self._car_preset_map.items()):
+        for car_key, preset_name in list(self._car_preset_map.items()):
             if preset_name not in self._preset_store:
-                self._car_preset_map[car_id] = default_preset
+                self._car_preset_map[car_key] = default_preset
+        for car_key in list(self._car_alias_map.keys()):
+            if car_key not in self._car_preset_map:
+                del self._car_alias_map[car_key]
 
     def _clear_layout(self, layout: QVBoxLayout) -> None:
         while layout.count():
@@ -1481,6 +1565,7 @@ class MainWindow(QMainWindow):
     def _refresh_car_preset_list(self) -> None:
         self._suppress_car_binding_updates = True
         self._car_binding_preset_combos.clear()
+        self._car_binding_alias_buttons.clear()
         self._car_binding_remove_buttons.clear()
         self._clear_layout(self.car_binding_rows_layout)
 
@@ -1492,34 +1577,56 @@ class MainWindow(QMainWindow):
             return
 
         default_preset = self._default_preset_name()
-        for car_id in sorted(self._car_preset_map.keys(), key=lambda value: int(value)):
+
+        def _sort_car_key(value: str) -> tuple[str, int]:
+            game_code, car_id = self._split_car_key(value)
+            try:
+                numeric_id = int(car_id)
+            except ValueError:
+                numeric_id = 0
+            return game_code, numeric_id
+
+        for car_key in sorted(self._car_preset_map.keys(), key=_sort_car_key):
+            game_code, car_id = self._split_car_key(car_key)
             row_widget = QWidget()
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(0, 0, 0, 0)
 
-            car_label = QLabel(f"Car {car_id}")
+            alias = self._car_alias_map.get(car_key, "").strip()
+            display_name = alias if alias else f"Car {car_id}"
+            car_label = QLabel(display_name)
             car_label.setMinimumWidth(90)
+            car_label.setToolTip(f"{game_code}-{car_id}")
             row_layout.addWidget(car_label)
+
+            alias_button = QPushButton("Rename")
+            alias_button.clicked.connect(
+                lambda _checked=False, car_key=car_key: self._rename_car_alias(car_key)
+            )
+            self._car_binding_alias_buttons.append(alias_button)
+            row_layout.addWidget(alias_button)
 
             preset_combo = QComboBox()
             preset_combo.setMinimumWidth(180)
             for preset_name in sorted(self._preset_store.keys(), key=str.lower):
                 preset_combo.addItem(preset_name)
-            current_preset = self._car_preset_map.get(car_id, default_preset)
+            current_preset = self._car_preset_map.get(car_key, default_preset)
             if preset_combo.findText(current_preset) >= 0:
                 preset_combo.setCurrentText(current_preset)
             else:
                 preset_combo.setCurrentText(default_preset)
-                self._car_preset_map[car_id] = default_preset
+                self._car_preset_map[car_key] = default_preset
             preset_combo.currentTextChanged.connect(
-                lambda name, car=car_id: self._on_car_preset_changed(car, name)
+                lambda name, car_key=car_key: self._on_car_preset_changed(car_key, name)
             )
             self._car_binding_preset_combos.append(preset_combo)
             row_layout.addWidget(preset_combo)
 
             remove_button = QPushButton("Remove")
             remove_button.clicked.connect(
-                lambda _checked=False, car=car_id: self._remove_car_binding(car)
+                lambda _checked=False, car_key=car_key: self._remove_car_binding(
+                    car_key
+                )
             )
             self._car_binding_remove_buttons.append(remove_button)
             row_layout.addWidget(remove_button)
@@ -1530,51 +1637,88 @@ class MainWindow(QMainWindow):
         if self._thread is not None:
             for combo in self._car_binding_preset_combos:
                 combo.setEnabled(False)
+            for button in self._car_binding_alias_buttons:
+                button.setEnabled(False)
             for button in self._car_binding_remove_buttons:
                 button.setEnabled(False)
 
         self._suppress_car_binding_updates = False
 
-    @Slot(int)
-    def _on_car_detected(self, car_ordinal: int) -> None:
+    @Slot(int, str)
+    def _on_car_detected(self, car_ordinal: int, game_code: str) -> None:
         car_id = str(car_ordinal)
-        was_new = car_id not in self._car_preset_map
+        normalized_game_code = self._normalize_game_code(game_code)
+        car_key = self._car_storage_key(normalized_game_code, car_id)
+
+        was_new = car_key not in self._car_preset_map
         if was_new:
             default_preset = self._default_preset_name()
-            self._car_preset_map[car_id] = default_preset
+            self._car_preset_map[car_key] = default_preset
             self._refresh_car_preset_list()
             self._save_app_state()
             self.append_log(
-                f"[INFO] New car detected: CarOrdinal={car_id}. Assigned default preset '{default_preset}'."
+                f"[INFO] New car detected: {normalized_game_code}-{car_id}. Assigned default preset '{default_preset}'."
             )
 
-        mapped_preset = self._car_preset_map.get(car_id)
+        mapped_preset = self._car_preset_map.get(car_key)
         if mapped_preset and mapped_preset in self._preset_store:
             if self._thread is None:
-                self._apply_preset_by_name(mapped_preset, log_context=f"car {car_id}")
+                self._apply_preset_by_name(
+                    mapped_preset,
+                    log_context=f"{normalized_game_code}-{car_id}",
+                )
             else:
                 self.append_log(
-                    f"[INFO] Car {car_id} matched preset '{mapped_preset}' (will apply on next start)."
+                    f"[INFO] Car {normalized_game_code}-{car_id} matched preset '{mapped_preset}' (will apply on next start)."
                 )
 
     @Slot(str, str)
-    def _on_car_preset_changed(self, car_id: str, preset_name: str) -> None:
+    def _on_car_preset_changed(self, car_key: str, preset_name: str) -> None:
         if self._suppress_car_binding_updates:
             return
         if preset_name not in self._preset_store:
             return
-        self._car_preset_map[car_id] = preset_name
+        self._car_preset_map[car_key] = preset_name
         self._save_app_state()
-        self.append_log(f"[INFO] Car {car_id} assigned to preset '{preset_name}'.")
+        game_code, car_id = self._split_car_key(car_key)
+        self.append_log(
+            f"[INFO] Car {game_code}-{car_id} assigned to preset '{preset_name}'."
+        )
 
     @Slot(str)
-    def _remove_car_binding(self, car_id: str) -> None:
-        if car_id not in self._car_preset_map:
+    def _rename_car_alias(self, car_key: str) -> None:
+        if car_key not in self._car_preset_map:
             return
-        del self._car_preset_map[car_id]
+        game_code, car_id = self._split_car_key(car_key)
+        current_alias = self._car_alias_map.get(car_key, "")
+        alias, ok = QInputDialog.getText(
+            self,
+            "Set Car Alias",
+            f"Alias for {game_code}-{car_id} (empty resets):",
+            text=current_alias,
+        )
+        if not ok:
+            return
+        alias = alias.strip()
+        if alias:
+            self._car_alias_map[car_key] = alias
+            self.append_log(f"[INFO] Car {game_code}-{car_id} alias set to '{alias}'.")
+        else:
+            self._car_alias_map.pop(car_key, None)
+            self.append_log(f"[INFO] Car {game_code}-{car_id} alias reset to default.")
         self._refresh_car_preset_list()
         self._save_app_state()
-        self.append_log(f"[INFO] Removed car assignment for Car {car_id}.")
+
+    @Slot(str)
+    def _remove_car_binding(self, car_key: str) -> None:
+        if car_key not in self._car_preset_map:
+            return
+        game_code, car_id = self._split_car_key(car_key)
+        del self._car_preset_map[car_key]
+        self._car_alias_map.pop(car_key, None)
+        self._refresh_car_preset_list()
+        self._save_app_state()
+        self.append_log(f"[INFO] Removed car assignment for {game_code}-{car_id}.")
 
     def _update_preset_delete_button_state(self) -> None:
         name = self.preset_selector.currentText().strip()
@@ -1606,6 +1750,12 @@ class MainWindow(QMainWindow):
             return
         name = name.strip()
         if not name:
+            QMessageBox.warning(
+                self,
+                "Invalid Preset Name",
+                "Preset name cannot be empty.",
+                QMessageBox.StandardButton.Ok,
+            )
             self.append_log("[WARN] Preset name cannot be empty.")
             return
         if name.lower() in BUILTIN_PRESET_TEMPLATES:
@@ -1702,18 +1852,22 @@ class MainWindow(QMainWindow):
             return
         if name in self._preset_store:
             affected_cars = [
-                car_id
-                for car_id, preset_name in self._car_preset_map.items()
+                car_key
+                for car_key, preset_name in self._car_preset_map.items()
                 if preset_name == name
             ]
             if affected_cars:
                 default_preset = self._default_preset_name()
+                formatted_cars = [
+                    f"{self._split_car_key(car_key)[0]}-{self._split_car_key(car_key)[1]}"
+                    for car_key in affected_cars
+                ]
                 answer = QMessageBox.question(
                     self,
                     "Delete Preset",
                     (
                         f"Preset '{name}' is assigned to {len(affected_cars)} car(s): "
-                        f"{', '.join(sorted(affected_cars, key=lambda value: int(value)))}.\n\n"
+                        f"{', '.join(sorted(formatted_cars))}.\n\n"
                         f"If deleted, affected cars will be reassigned to '{default_preset}'. Continue?"
                     ),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1721,8 +1875,8 @@ class MainWindow(QMainWindow):
                 )
                 if answer != QMessageBox.StandardButton.Yes:
                     return
-                for car_id in affected_cars:
-                    self._car_preset_map[car_id] = default_preset
+                for car_key in affected_cars:
+                    self._car_preset_map[car_key] = default_preset
 
             if self._active_preset_name == name:
                 self._active_preset_name = self._default_preset_name()
