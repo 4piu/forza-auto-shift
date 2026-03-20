@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -70,6 +71,7 @@ PROCESS_NAME_TO_GAME_CODE = {
     "forzahorizon4.exe": "FH4",
     "forzahorizon5.exe": "FH5",
     "forzamotorsport.exe": "FM",
+    "forza_gaming.desktop.x64_release_final.exe": "FM",
 }
 
 
@@ -194,6 +196,7 @@ FORZA_PROCESS_NAMES = {
     "forzahorizon4.exe",
     "forzahorizon5.exe",
     "forzamotorsport.exe",
+    "forza_gaming.desktop.x64_release_final.exe",
 }
 
 FORZA_TITLE_KEYWORDS = (
@@ -609,6 +612,7 @@ class MainWindow(QMainWindow):
         self._shift_up_key_name = "E"
         self._preset_store: dict[str, dict[str, float | int | bool | str]] = {}
         self._active_preset_name = ""
+        self._default_binding_preset_name = ""
         self._car_preset_map: dict[str, str] = {}
         self._car_alias_map: dict[str, str] = {}
         self._car_binding_preset_combos: list[QComboBox] = []
@@ -681,9 +685,42 @@ class MainWindow(QMainWindow):
         input_layout.addStretch()
         tabs.addTab(input_widget, "Input")
 
-        # ===== TUNING TAB WITH COLLAPSIBLES =====
+        # ===== TUNING TAB WITH PRESET EDITOR =====
         tuning_widget = QWidget()
-        tuning_layout = QVBoxLayout(tuning_widget)
+        tuning_tab_layout = QHBoxLayout(tuning_widget)
+
+        preset_editor_group = QGroupBox("Preset Editor")
+        preset_editor_layout = QVBoxLayout(preset_editor_group)
+        self.preset_list = QListWidget()
+        self.preset_list.setMinimumWidth(220)
+        self.preset_list.currentTextChanged.connect(self._on_preset_selected)
+        preset_editor_layout.addWidget(self.preset_list)
+
+        preset_editor_actions_top = QHBoxLayout()
+        self.preset_create_button = QPushButton("Create")
+        self.preset_create_button.clicked.connect(self._save_current_as_preset)
+        preset_editor_actions_top.addWidget(self.preset_create_button)
+        self.preset_duplicate_button = QPushButton("Duplicate")
+        self.preset_duplicate_button.clicked.connect(self._duplicate_selected_preset)
+        preset_editor_actions_top.addWidget(self.preset_duplicate_button)
+        preset_editor_layout.addLayout(preset_editor_actions_top)
+
+        preset_editor_actions_bottom = QHBoxLayout()
+        self.preset_rename_button = QPushButton("Rename")
+        self.preset_rename_button.clicked.connect(self._rename_selected_preset)
+        preset_editor_actions_bottom.addWidget(self.preset_rename_button)
+        self.preset_save_button = QPushButton("Save")
+        self.preset_save_button.clicked.connect(self._save_selected_preset)
+        preset_editor_actions_bottom.addWidget(self.preset_save_button)
+        self.preset_delete_button = QPushButton("Delete")
+        self.preset_delete_button.clicked.connect(self._delete_selected_preset)
+        preset_editor_actions_bottom.addWidget(self.preset_delete_button)
+        preset_editor_layout.addLayout(preset_editor_actions_bottom)
+
+        tuning_tab_layout.addWidget(preset_editor_group)
+
+        tuning_fields_widget = QWidget()
+        tuning_layout = QVBoxLayout(tuning_fields_widget)
 
         # RPM Maps group
         rpm_group = CollapsibleBox("RPM Maps", collapsed=False)
@@ -833,28 +870,23 @@ class MainWindow(QMainWindow):
 
         tuning_layout.addStretch()
         tuning_scroll = QScrollArea()
-        tuning_scroll.setWidget(tuning_widget)
+        tuning_scroll.setWidget(tuning_fields_widget)
         tuning_scroll.setWidgetResizable(True)
-        tabs.addTab(tuning_scroll, "Tuning")
+        tuning_tab_layout.addWidget(tuning_scroll, 1)
+        tabs.addTab(tuning_widget, "Tuning")
 
         # ===== PRESETS TAB =====
         presets_widget = QWidget()
         presets_layout = QVBoxLayout(presets_widget)
-        presets_group = QGroupBox("Presets")
+        presets_group = QGroupBox("Preset-Car Binding")
         presets_form = QFormLayout(presets_group)
         self._set_compact_form(presets_form)
-        self.preset_selector = QComboBox()
-        self.preset_selector.setMaximumWidth(220)
-        self.preset_selector.currentTextChanged.connect(self._on_preset_selected)
-        presets_form.addRow("Default preset:", self.preset_selector)
-        preset_actions = QHBoxLayout()
-        self.preset_save_button = QPushButton("Save Tuning Preset")
-        self.preset_save_button.clicked.connect(self._save_current_as_preset)
-        preset_actions.addWidget(self.preset_save_button)
-        self.preset_delete_button = QPushButton("Delete")
-        self.preset_delete_button.clicked.connect(self._delete_selected_preset)
-        preset_actions.addWidget(self.preset_delete_button)
-        presets_form.addRow("Actions:", preset_actions)
+        self.binding_default_preset_combo = QComboBox()
+        self.binding_default_preset_combo.setMaximumWidth(220)
+        self.binding_default_preset_combo.currentTextChanged.connect(
+            self._on_binding_default_preset_changed
+        )
+        presets_form.addRow("Default for new cars:", self.binding_default_preset_combo)
         presets_layout.addWidget(presets_group)
 
         car_group = QGroupBox("Car Preset Assignments")
@@ -1012,7 +1044,34 @@ class MainWindow(QMainWindow):
         self.focus_guard_checkbox.setEnabled(enabled)
         self.record_shift_down_button.setEnabled(enabled)
         self.record_shift_up_button.setEnabled(enabled)
-        # Tuning tab controls
+        # Tuning tab controls (built-in presets are read-only in editor)
+        active_is_builtin = self._active_preset_name.lower() in BUILTIN_PRESET_TEMPLATES
+        self._set_tuning_fields_enabled(enabled and not active_is_builtin)
+        # Preset editor + binding tab
+        self.preset_list.setEnabled(enabled)
+        self.preset_create_button.setEnabled(enabled)
+        self.preset_duplicate_button.setEnabled(
+            enabled and bool(self._active_preset_name)
+        )
+        self.preset_rename_button.setEnabled(enabled and bool(self._active_preset_name))
+        self.preset_save_button.setEnabled(enabled and bool(self._active_preset_name))
+        self.binding_default_preset_combo.setEnabled(enabled)
+        for combo in self._car_binding_preset_combos:
+            combo.setEnabled(enabled)
+        for button in self._car_binding_alias_buttons:
+            button.setEnabled(enabled)
+        for button in self._car_binding_remove_buttons:
+            button.setEnabled(enabled)
+        if enabled:
+            self._update_preset_delete_button_state()
+        else:
+            self.preset_delete_button.setEnabled(False)
+            self.preset_delete_button.setToolTip("Unavailable while running")
+        # Hotkey and log level
+        self.log_level_input.setEnabled(enabled)
+        self.record_hotkey_button.setEnabled(enabled)
+
+    def _set_tuning_fields_enabled(self, enabled: bool) -> None:
         self.upshift_low_input.setEnabled(enabled)
         self.upshift_high_input.setEnabled(enabled)
         self.downshift_low_input.setEnabled(enabled)
@@ -1033,23 +1092,6 @@ class MainWindow(QMainWindow):
         self.slip_threshold_input.setEnabled(enabled)
         self.slip_guard_duration_input.setEnabled(enabled)
         self.slip_min_throttle_input.setEnabled(enabled)
-        # Presets tab
-        self.preset_selector.setEnabled(enabled)
-        self.preset_save_button.setEnabled(enabled)
-        for combo in self._car_binding_preset_combos:
-            combo.setEnabled(enabled)
-        for button in self._car_binding_alias_buttons:
-            button.setEnabled(enabled)
-        for button in self._car_binding_remove_buttons:
-            button.setEnabled(enabled)
-        if enabled:
-            self._update_preset_delete_button_state()
-        else:
-            self.preset_delete_button.setEnabled(False)
-            self.preset_delete_button.setToolTip("Unavailable while running")
-        # Hotkey and log level
-        self.log_level_input.setEnabled(enabled)
-        self.record_hotkey_button.setEnabled(enabled)
 
     @Slot()
     def stop_worker(self) -> None:
@@ -1376,6 +1418,7 @@ class MainWindow(QMainWindow):
             "hotkey_tokens": [t for t in hotkey_tokens if t],
             "current_tuning": current_tuning,
             "active_preset": self._active_preset_name,
+            "default_binding_preset": self._default_binding_preset_name,
             "presets": user_presets,
             "cars": cars,
         }
@@ -1475,12 +1518,18 @@ class MainWindow(QMainWindow):
         if isinstance(active_preset, str):
             self._active_preset_name = active_preset
 
+        default_binding_preset = state.get("default_binding_preset", "")
+        if isinstance(default_binding_preset, str):
+            self._default_binding_preset_name = default_binding_preset
+
     def _load_app_state(self) -> None:
         for name, template in BUILTIN_PRESET_TEMPLATES.items():
             self._preset_store[name] = dict(template)
 
         if not self._active_preset_name:
             self._active_preset_name = self._default_preset_name()
+        if not self._default_binding_preset_name:
+            self._default_binding_preset_name = self._default_preset_name()
 
         if not self._state_file_path.exists():
             return
@@ -1495,6 +1544,8 @@ class MainWindow(QMainWindow):
                 self._normalize_car_preset_map()
                 if self._active_preset_name not in self._preset_store:
                     self._active_preset_name = self._default_preset_name()
+                if self._default_binding_preset_name not in self._preset_store:
+                    self._default_binding_preset_name = self._default_preset_name()
                 self.append_log(f"Loaded app state from {self._state_file_path.name}")
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             self.append_log(f"[WARN] Could not load app state: {exc}")
@@ -1508,25 +1559,56 @@ class MainWindow(QMainWindow):
             self.append_log(f"[WARN] Could not save app state: {exc}")
 
     def _refresh_preset_selector(self) -> None:
-        current = self._active_preset_name or self.preset_selector.currentText()
+        current = self._active_preset_name
         self._suppress_preset_auto_apply = True
-        self.preset_selector.blockSignals(True)
-        self.preset_selector.clear()
+        self.preset_list.blockSignals(True)
+        self.binding_default_preset_combo.blockSignals(True)
+        self.preset_list.clear()
+        self.binding_default_preset_combo.clear()
         for name in sorted(self._preset_store.keys(), key=str.lower):
-            self.preset_selector.addItem(name)
+            self.preset_list.addItem(name)
+            self.binding_default_preset_combo.addItem(name)
         if current:
-            index = self.preset_selector.findText(current)
+            names = [
+                self.preset_list.item(i).text() for i in range(self.preset_list.count())
+            ]
+            if current in names:
+                self.preset_list.setCurrentRow(names.index(current))
+            elif self.preset_list.count() > 0:
+                self.preset_list.setCurrentRow(0)
+                self._active_preset_name = self.preset_list.currentItem().text()
+        elif self.preset_list.count() > 0:
+            self.preset_list.setCurrentRow(0)
+            self._active_preset_name = self.preset_list.currentItem().text()
+
+        binding_default = self._default_binding_preset_name
+        if binding_default:
+            index = self.binding_default_preset_combo.findText(binding_default)
             if index >= 0:
-                self.preset_selector.setCurrentIndex(index)
-            elif self.preset_selector.count() > 0:
-                self.preset_selector.setCurrentIndex(0)
-                self._active_preset_name = self.preset_selector.currentText()
-        self.preset_selector.blockSignals(False)
+                self.binding_default_preset_combo.setCurrentIndex(index)
+            elif self.binding_default_preset_combo.count() > 0:
+                self.binding_default_preset_combo.setCurrentIndex(0)
+                self._default_binding_preset_name = (
+                    self.binding_default_preset_combo.currentText()
+                )
+        elif self.binding_default_preset_combo.count() > 0:
+            self.binding_default_preset_combo.setCurrentIndex(0)
+            self._default_binding_preset_name = (
+                self.binding_default_preset_combo.currentText()
+            )
+
+        self.preset_list.blockSignals(False)
+        self.binding_default_preset_combo.blockSignals(False)
         self._suppress_preset_auto_apply = False
         self._refresh_car_preset_list()
         self._update_preset_delete_button_state()
 
+        if self._active_preset_name:
+            self._load_preset_into_editor(self._active_preset_name)
+
     def _default_preset_name(self) -> str:
+        if self._default_binding_preset_name in self._preset_store:
+            return self._default_binding_preset_name
         if DEFAULT_CAR_PRESET_NAME in self._preset_store:
             return DEFAULT_CAR_PRESET_NAME
         if self._preset_store:
@@ -1752,29 +1834,73 @@ class MainWindow(QMainWindow):
         self.append_log(f"[INFO] Removed car assignment for {game_code}-{car_id}.")
 
     def _update_preset_delete_button_state(self) -> None:
-        name = self.preset_selector.currentText().strip()
-        if not self.preset_selector.isEnabled():
+        name = self._active_preset_name.strip()
+        if not self.preset_list.isEnabled():
             self.preset_delete_button.setEnabled(False)
             self.preset_delete_button.setToolTip("Unavailable while running")
+            self.preset_rename_button.setEnabled(False)
+            self.preset_duplicate_button.setEnabled(False)
+            self.preset_save_button.setEnabled(False)
+            self._set_tuning_fields_enabled(False)
             return
         if not name:
             self.preset_delete_button.setEnabled(False)
-            self.preset_delete_button.setToolTip("Select a preset to delete")
+            self.preset_delete_button.setToolTip("Select a preset in the editor list")
+            self.preset_rename_button.setEnabled(False)
+            self.preset_duplicate_button.setEnabled(False)
+            self.preset_save_button.setEnabled(False)
+            self._set_tuning_fields_enabled(False)
             return
+        self.preset_rename_button.setEnabled(True)
+        self.preset_duplicate_button.setEnabled(True)
+        self.preset_save_button.setEnabled(True)
         if name.lower() in BUILTIN_PRESET_TEMPLATES:
             self.preset_delete_button.setEnabled(False)
             self.preset_delete_button.setToolTip("Built-in presets cannot be deleted")
+            self.preset_rename_button.setEnabled(False)
+            self.preset_save_button.setEnabled(False)
+            self._set_tuning_fields_enabled(False)
             return
         self.preset_delete_button.setEnabled(True)
         self.preset_delete_button.setToolTip("Delete selected custom preset")
+        self._set_tuning_fields_enabled(True)
+
+    @Slot(str)
+    def _on_binding_default_preset_changed(self, name: str) -> None:
+        if self._suppress_preset_auto_apply:
+            return
+        if not name or name not in self._preset_store:
+            return
+        self._default_binding_preset_name = name
+        self._save_app_state()
+
+    def _load_preset_into_editor(self, name: str) -> None:
+        if not name or name not in self._preset_store:
+            return
+        preset = self._preset_store[name]
+        self._apply_tuning_values(preset)
+        self._shift_down_scan_code = int(
+            preset.get("shift_down_scan_code", self._shift_down_scan_code)
+        )
+        self._shift_up_scan_code = int(
+            preset.get("shift_up_scan_code", self._shift_up_scan_code)
+        )
+        self._shift_down_key_name = str(
+            preset.get("shift_down_key_name", self._shift_down_key_name)
+        )
+        self._shift_up_key_name = str(
+            preset.get("shift_up_key_name", self._shift_up_key_name)
+        )
+        self.shift_down_key_label.setText(self._shift_down_key_name)
+        self.shift_up_key_label.setText(self._shift_up_key_name)
 
     @Slot()
     def _save_current_as_preset(self) -> None:
-        default_name = self.preset_selector.currentText().strip() or "my-preset"
+        default_name = self._active_preset_name.strip() or "my-preset"
         name, ok = QInputDialog.getText(
             self,
-            "Save Tuning Preset",
-            "Preset name:",
+            "Create Preset",
+            "New preset name:",
             text=default_name,
         )
         if not ok:
@@ -1806,14 +1932,13 @@ class MainWindow(QMainWindow):
         if name in self._preset_store:
             answer = QMessageBox.question(
                 self,
-                "Overwrite Preset",
-                f"Preset '{name}' already exists. Overwrite it?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
+                "Preset Exists",
+                f"Preset '{name}' already exists. Choose another name.",
+                QMessageBox.StandardButton.Ok,
             )
-            if answer != QMessageBox.StandardButton.Yes:
-                self.append_log("[INFO] Preset save canceled.")
-                return
+            if answer == QMessageBox.StandardButton.Ok:
+                self.append_log("[INFO] Preset creation canceled.")
+            return
         preset_data = {
             **self._collect_tuning_values(),
             "shift_down_scan_code": int(self._shift_down_scan_code),
@@ -1824,31 +1949,96 @@ class MainWindow(QMainWindow):
         self._preset_store[name] = preset_data
         self._active_preset_name = name
         self._refresh_preset_selector()
-        self.preset_selector.setCurrentText(name)
+        self._save_app_state()
+        self.append_log(f"[INFO] Created preset '{name}'.")
+
+    @Slot()
+    def _save_selected_preset(self) -> None:
+        name = self._active_preset_name.strip()
+        if not name or name not in self._preset_store:
+            self.append_log("[WARN] Select a preset to save.")
+            return
+        if name.lower() in BUILTIN_PRESET_TEMPLATES:
+            self.append_log("[WARN] Built-in presets cannot be saved/overwritten.")
+            return
+        self._preset_store[name] = {
+            **self._collect_tuning_values(),
+            "shift_down_scan_code": int(self._shift_down_scan_code),
+            "shift_up_scan_code": int(self._shift_up_scan_code),
+            "shift_down_key_name": self._shift_down_key_name,
+            "shift_up_key_name": self._shift_up_key_name,
+        }
         self._save_app_state()
         self.append_log(f"[INFO] Saved preset '{name}'.")
+
+    @Slot()
+    def _duplicate_selected_preset(self) -> None:
+        source_name = self._active_preset_name.strip()
+        if not source_name or source_name not in self._preset_store:
+            self.append_log("[WARN] Select a preset to duplicate.")
+            return
+        suggested_name = f"{source_name}-copy"
+        name, ok = QInputDialog.getText(
+            self,
+            "Duplicate Preset",
+            "Duplicate preset name:",
+            text=suggested_name,
+        )
+        if not ok:
+            return
+        name = name.strip()
+        if not name:
+            self.append_log("[WARN] Preset name cannot be empty.")
+            return
+        if name in self._preset_store:
+            self.append_log(f"[WARN] Preset '{name}' already exists.")
+            return
+        self._preset_store[name] = dict(self._preset_store[source_name])
+        self._active_preset_name = name
+        self._refresh_preset_selector()
+        self._save_app_state()
+        self.append_log(f"[INFO] Duplicated preset '{source_name}' to '{name}'.")
+
+    @Slot()
+    def _rename_selected_preset(self) -> None:
+        source_name = self._active_preset_name.strip()
+        if not source_name or source_name not in self._preset_store:
+            self.append_log("[WARN] Select a preset to rename.")
+            return
+        if source_name.lower() in BUILTIN_PRESET_TEMPLATES:
+            self.append_log("[WARN] Built-in presets cannot be renamed.")
+            return
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Rename Preset",
+            "New preset name:",
+            text=source_name,
+        )
+        if not ok:
+            return
+        new_name = new_name.strip()
+        if not new_name or new_name == source_name:
+            return
+        if new_name in self._preset_store:
+            self.append_log(f"[WARN] Preset '{new_name}' already exists.")
+            return
+        self._preset_store[new_name] = self._preset_store.pop(source_name)
+        if self._default_binding_preset_name == source_name:
+            self._default_binding_preset_name = new_name
+        for car_key, preset_name in list(self._car_preset_map.items()):
+            if preset_name == source_name:
+                self._car_preset_map[car_key] = new_name
+        self._active_preset_name = new_name
+        self._refresh_preset_selector()
+        self._save_app_state()
+        self.append_log(f"[INFO] Renamed preset '{source_name}' to '{new_name}'.")
 
     def _apply_preset_by_name(self, name: str, log_context: str | None = None) -> None:
         if not name or name not in self._preset_store:
             return
-        preset = self._preset_store[name]
-        self._apply_tuning_values(preset)
-        self._shift_down_scan_code = int(
-            preset.get("shift_down_scan_code", self._shift_down_scan_code)
-        )
-        self._shift_up_scan_code = int(
-            preset.get("shift_up_scan_code", self._shift_up_scan_code)
-        )
-        self._shift_down_key_name = str(
-            preset.get("shift_down_key_name", self._shift_down_key_name)
-        )
-        self._shift_up_key_name = str(
-            preset.get("shift_up_key_name", self._shift_up_key_name)
-        )
-        self.shift_down_key_label.setText(self._shift_down_key_name)
-        self.shift_up_key_label.setText(self._shift_up_key_name)
+        self._load_preset_into_editor(name)
         self._active_preset_name = name
-        self.preset_selector.setCurrentText(name)
+        self._refresh_preset_selector()
         self._save_app_state()
         if log_context:
             self.append_log(f"[INFO] Applied preset '{name}' from {log_context}.")
@@ -1857,7 +2047,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _apply_selected_preset(self) -> None:
-        name = self.preset_selector.currentText().strip()
+        name = self._active_preset_name.strip()
         if not name or name not in self._preset_store:
             self.append_log("[WARN] Select a preset to apply.")
             return
@@ -1865,16 +2055,18 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _on_preset_selected(self, name: str) -> None:
+        self._active_preset_name = name.strip()
         self._update_preset_delete_button_state()
         if self._suppress_preset_auto_apply:
             return
         if not name or name not in self._preset_store:
             return
-        self._apply_selected_preset()
+        self._load_preset_into_editor(name)
+        self._save_app_state()
 
     @Slot()
     def _delete_selected_preset(self) -> None:
-        name = self.preset_selector.currentText().strip()
+        name = self._active_preset_name.strip()
         if not name:
             self.append_log("[WARN] Select a preset to delete.")
             return
@@ -1911,6 +2103,8 @@ class MainWindow(QMainWindow):
 
             if self._active_preset_name == name:
                 self._active_preset_name = self._default_preset_name()
+            if self._default_binding_preset_name == name:
+                self._default_binding_preset_name = self._default_preset_name()
             del self._preset_store[name]
             self._refresh_preset_selector()
             self._save_app_state()
