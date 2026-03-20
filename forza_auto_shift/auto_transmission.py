@@ -23,6 +23,10 @@ class AutomaticTransmissionConfig:
     min_throttle_for_upshift: float = 0.08
     min_throttle_for_downshift: float = 0.15
     brake_downshift_threshold: float = 0.08
+    coast_throttle_threshold: float = 0.05
+    coast_brake_threshold: float = 0.05
+    coast_downshift_idle_rpm_margin: float = 320.0
+    coast_downshift_max_speed_mps: float = 55.0
     kickdown_throttle_threshold: float = 0.88
     kickdown_max_rpm: float = 5200.0
     kickdown_lockout_after_upshift_s: float = 1.10
@@ -123,6 +127,22 @@ class AdaptiveAutomaticTransmission:
             self._mark_shift(now, shift_kind="recovery_downshift")
             recovery_rpm_limit = idle_rpm + self.config.low_speed_recovery_rpm_margin
             self.last_decision_reason = f"recovery(speed={speed*3.6:.1f}kmh,rpm={rpm:.0f},limit={recovery_rpm_limit:.0f},brk={brake:.2f})"
+            return "downshift"
+
+        if self._should_coast_downshift(
+            gear=gear,
+            speed=speed,
+            rpm=rpm,
+            idle_rpm=idle_rpm,
+            throttle=throttle,
+            brake=brake,
+        ):
+            self._mark_shift(now, shift_kind="downshift")
+            coast_limit = idle_rpm + self.config.coast_downshift_idle_rpm_margin
+            self.last_decision_reason = (
+                f"coast_downshift(rpm={rpm:.0f}<=limit={coast_limit:.0f},"
+                f"thr={throttle:.2f},brk={brake:.2f})"
+            )
             return "downshift"
 
         if self._is_kickdown_locked_out(now):
@@ -417,6 +437,28 @@ class AdaptiveAutomaticTransmission:
             and brake < self.config.brake_downshift_threshold
             and rpm >= upshift_rpm
         )
+
+    def _should_coast_downshift(
+        self,
+        gear: int,
+        speed: float,
+        rpm: float,
+        idle_rpm: float,
+        throttle: float,
+        brake: float,
+    ) -> bool:
+        if gear <= self.config.min_forward_gear:
+            return False
+        if speed < self.config.min_speed_for_downshift_mps:
+            return False
+        if speed > self.config.coast_downshift_max_speed_mps:
+            return False
+        if throttle > self.config.coast_throttle_threshold:
+            return False
+        if brake > self.config.coast_brake_threshold:
+            return False
+        coast_limit = idle_rpm + self.config.coast_downshift_idle_rpm_margin
+        return rpm <= coast_limit
 
     def _should_downshift(
         self,
