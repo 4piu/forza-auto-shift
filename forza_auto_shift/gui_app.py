@@ -365,6 +365,7 @@ class AutoShiftWorker(QObject):
         self._telemetry_state = "Waiting"
         self._focus_state = "N/A"
         self._game_state = "Unknown"
+        self._last_shift_latency_ms: float | None = None
 
     def _log(self, level: str, message: str) -> None:
         current_level = LOG_LEVEL_ORDER.get(self.log_level, LOG_LEVEL_ORDER["INFO"])
@@ -403,9 +404,22 @@ class AutoShiftWorker(QObject):
             self._emit_status()
 
     def _emit_status(self) -> None:
-        self.status.emit(
-            f"{self._run_state} | Telemetry: {self._telemetry_state} | Focus: {self._focus_state} | Game: {self._game_state}"
+        latency_text = (
+            f"{self._last_shift_latency_ms:.1f} ms"
+            if self._last_shift_latency_ms is not None
+            else "N/A"
         )
+        self.status.emit(
+            f"{self._run_state} | Telemetry: {self._telemetry_state} | Focus: {self._focus_state} | Game: {self._game_state} | Latency: {latency_text}"
+        )
+
+    def _record_shift_latency(self, packet_received_at: float) -> None:
+        if self.dry_run:
+            return
+        self._last_shift_latency_ms = max(
+            0.0, (time.perf_counter() - packet_received_at) * 1000.0
+        )
+        self._emit_status()
 
     @Slot()
     def run(self) -> None:
@@ -415,6 +429,7 @@ class AutoShiftWorker(QObject):
             "N/A" if self.dry_run or not self.require_focus_guard else "Unknown"
         )
         self._game_state = "Unknown"
+        self._last_shift_latency_ms = None
         self._emit_status()
         self._refresh_focus_state()
         bind_text = self.bind_host if self.bind_host else "0.0.0.0"
@@ -458,6 +473,7 @@ class AutoShiftWorker(QObject):
                 while not self._stop_event.is_set():
                     try:
                         raw_data, addr = listener.recv_raw()
+                        packet_received_at = time.perf_counter()
                     except socket.timeout:
                         self._refresh_focus_state()
                         now = time.monotonic()
@@ -533,6 +549,7 @@ class AutoShiftWorker(QObject):
                                     f"[{packet_count}] Shift blocked: Forza window not active",
                                 )
                                 continue
+                        self._record_shift_latency(packet_received_at)
                         input_controller.shift_up()
                         self._log(
                             "INFO",
@@ -546,6 +563,7 @@ class AutoShiftWorker(QObject):
                                     f"[{packet_count}] Shift blocked: Forza window not active",
                                 )
                                 continue
+                        self._record_shift_latency(packet_received_at)
                         input_controller.shift_down()
                         self._log(
                             "INFO",
@@ -1060,7 +1078,7 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(controls)
 
         self.statusBar().showMessage(
-            "Status: Idle | Telemetry: Waiting | Focus: N/A | Game: Unknown"
+            "Status: Idle | Telemetry: Waiting | Focus: N/A | Game: Unknown | Latency: N/A"
         )
 
         # ===== LOG VIEW =====
