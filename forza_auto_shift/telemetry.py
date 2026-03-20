@@ -14,6 +14,7 @@ SLED_SIZE_FH = 224
 SLED_SIZE_FM = 232
 DASH_SIZE_CLASSIC = 311
 DASH_SIZE_FH4_RAW = 324
+DASH_SIZE_FM_RAW = 331
 
 # (field_name, struct_format)
 SLED_FIELDS_FM = [
@@ -219,6 +220,8 @@ def decode_packet(data: bytes) -> TelemetryPacket:
     candidates_by_size: dict[int, list[tuple[str, list[tuple[str, str]]]]] = {
         SLED_SIZE_FM: [("Sled-FM", SLED_FIELDS_FM)],
         DASH_SIZE_CLASSIC: [("Dash-Classic", DASH_FIELDS_CLASSIC)],
+        # FM dash packet variant with additional trailing bytes.
+        DASH_SIZE_FM_RAW: [("Dash-FM", DASH_FIELDS_CLASSIC)],
         SLED_SIZE_FH: [("Sled-FH", SLED_FIELDS_FM[:-2])],
     }
 
