@@ -67,6 +67,49 @@ MAPVK_VK_TO_VSC = 0
 APP_STATE_FILE_NAME = "forza_auto_shift_state.json"
 DEFAULT_CAR_PRESET_NAME = "street"
 
+DEFAULT_AT_CONFIG_VALUES: dict[str, object] = {
+    "upshift_rpm_low_throttle": 2800.0,
+    "upshift_rpm_high_throttle": 7000.0,
+    "downshift_rpm_low_throttle": 1100.0,
+    "downshift_rpm_high_throttle": 3600.0,
+    "min_time_between_shifts": 0.35,
+    "pending_shift_timeout": 0.75,
+    "min_forward_gear": 1,
+    "max_forward_gear": 10,
+    "min_speed_for_upshift_mps": 1.0,
+    "min_speed_for_downshift_mps": 4.0,
+    "min_throttle_for_upshift": 0.08,
+    "min_throttle_for_downshift": 0.15,
+    "brake_downshift_threshold": 0.08,
+    "coast_throttle_threshold": 0.05,
+    "coast_brake_threshold": 0.05,
+    "coast_downshift_idle_rpm_margin": 320.0,
+    "coast_downshift_max_speed_mps": 55.0,
+    "kickdown_throttle_threshold": 0.88,
+    "kickdown_max_rpm": 5200.0,
+    "kickdown_lockout_after_upshift_s": 1.10,
+    "max_pedal_value": 255,
+    "throttle_smoothing_alpha": 0.30,
+    "enable_per_gear_dwell": False,
+    "dwell_after_upshift_s": 0.0,
+    "dwell_after_downshift_s": 0.0,
+    "dwell_after_kickdown_s": 0.0,
+    "per_gear_dwell_overrides": {},
+    "enable_low_speed_recovery_downshift": True,
+    "low_speed_recovery_max_speed_mps": 1.0,
+    "low_speed_recovery_rpm_margin": 150.0,
+    "allow_upshift_from_neutral": False,
+    "allow_reverse_while_moving": False,
+    "enable_unload_upshift_guard": True,
+    "unload_suspension_threshold": 0.12,
+    "unload_guard_after_detect_s": 0.35,
+    "unload_min_throttle": 0.45,
+    "enable_slip_upshift_guard": True,
+    "slip_upshift_guard_threshold": 0.28,
+    "slip_guard_after_detect_s": 0.30,
+    "slip_guard_min_throttle": 0.45,
+}
+
 PROCESS_NAME_TO_GAME_CODE = {
     "forzahorizon4.exe": "FH4",
     "forzahorizon5.exe": "FH5",
@@ -123,72 +166,91 @@ SPECIAL_KEY_VK_MAP = {
 # Default hotkey for toggle start/stop
 DEFAULT_HOTKEY = keyboard.Key.f12
 
-BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, float | int | bool]] = {
+
+def _preset_with_defaults(overrides: dict[str, object]) -> dict[str, object]:
+    merged: dict[str, object] = dict(DEFAULT_AT_CONFIG_VALUES)
+    merged.update(overrides)
+    return merged
+
+
+BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, object]] = {
     "street": {
-        "upshift_rpm_low_throttle": 2200,
-        "upshift_rpm_high_throttle": 6500,
-        "downshift_rpm_low_throttle": 1050,
-        "downshift_rpm_high_throttle": 2600,
-        "min_time_between_shifts": 0.50,
-        "enable_per_gear_dwell": True,
-        "dwell_after_upshift_s": 0.35,
-        "dwell_after_downshift_s": 0.60,
-        "dwell_after_kickdown_s": 0.60,
-        "kickdown_throttle_threshold": 0.96,
-        "kickdown_max_rpm": 4000,
-        "kickdown_lockout_after_upshift_s": 1.10,
-        "enable_unload_upshift_guard": True,
-        "unload_suspension_threshold": 0.12,
-        "unload_guard_after_detect_s": 0.35,
-        "unload_min_throttle": 0.45,
-        "enable_slip_upshift_guard": True,
-        "slip_upshift_guard_threshold": 0.28,
-        "slip_guard_after_detect_s": 0.30,
-        "slip_guard_min_throttle": 0.45,
+        **_preset_with_defaults(
+            {
+                "upshift_rpm_low_throttle": 2200,
+                "upshift_rpm_high_throttle": 6500,
+                "downshift_rpm_low_throttle": 1050,
+                "downshift_rpm_high_throttle": 2600,
+                "min_time_between_shifts": 0.50,
+                "enable_per_gear_dwell": True,
+                "dwell_after_upshift_s": 0.35,
+                "dwell_after_downshift_s": 0.60,
+                "dwell_after_kickdown_s": 0.60,
+                "kickdown_throttle_threshold": 0.96,
+                "kickdown_max_rpm": 4000,
+                "kickdown_lockout_after_upshift_s": 1.10,
+                "enable_unload_upshift_guard": True,
+                "unload_suspension_threshold": 0.12,
+                "unload_guard_after_detect_s": 0.35,
+                "unload_min_throttle": 0.45,
+                "enable_slip_upshift_guard": True,
+                "slip_upshift_guard_threshold": 0.28,
+                "slip_guard_after_detect_s": 0.30,
+                "slip_guard_min_throttle": 0.45,
+            }
+        )
     },
     "sports": {
-        "upshift_rpm_low_throttle": 2900,
-        "upshift_rpm_high_throttle": 7000,
-        "downshift_rpm_low_throttle": 1200,
-        "downshift_rpm_high_throttle": 3600,
-        "min_time_between_shifts": 0.35,
-        "enable_per_gear_dwell": True,
-        "dwell_after_upshift_s": 0.25,
-        "dwell_after_downshift_s": 0.35,
-        "dwell_after_kickdown_s": 0.45,
-        "kickdown_throttle_threshold": 0.88,
-        "kickdown_max_rpm": 5400,
-        "kickdown_lockout_after_upshift_s": 0.95,
-        "enable_unload_upshift_guard": True,
-        "unload_suspension_threshold": 0.10,
-        "unload_guard_after_detect_s": 0.32,
-        "unload_min_throttle": 0.40,
-        "enable_slip_upshift_guard": True,
-        "slip_upshift_guard_threshold": 0.24,
-        "slip_guard_after_detect_s": 0.28,
-        "slip_guard_min_throttle": 0.38,
+        **_preset_with_defaults(
+            {
+                "upshift_rpm_low_throttle": 2900,
+                "upshift_rpm_high_throttle": 7000,
+                "downshift_rpm_low_throttle": 1200,
+                "downshift_rpm_high_throttle": 3600,
+                "min_time_between_shifts": 0.35,
+                "enable_per_gear_dwell": True,
+                "dwell_after_upshift_s": 0.25,
+                "dwell_after_downshift_s": 0.35,
+                "dwell_after_kickdown_s": 0.45,
+                "kickdown_throttle_threshold": 0.88,
+                "kickdown_max_rpm": 5400,
+                "kickdown_lockout_after_upshift_s": 0.95,
+                "enable_unload_upshift_guard": True,
+                "unload_suspension_threshold": 0.10,
+                "unload_guard_after_detect_s": 0.32,
+                "unload_min_throttle": 0.40,
+                "enable_slip_upshift_guard": True,
+                "slip_upshift_guard_threshold": 0.24,
+                "slip_guard_after_detect_s": 0.28,
+                "slip_guard_min_throttle": 0.38,
+            }
+        )
     },
     "race": {
-        "upshift_rpm_low_throttle": 3300,
-        "upshift_rpm_high_throttle": 7600,
-        "downshift_rpm_low_throttle": 1450,
-        "downshift_rpm_high_throttle": 4300,
-        "min_time_between_shifts": 0.28,
-        "enable_per_gear_dwell": True,
-        "dwell_after_upshift_s": 0.10,
-        "dwell_after_downshift_s": 0.20,
-        "dwell_after_kickdown_s": 0.25,
-        "kickdown_throttle_threshold": 0.82,
-        "kickdown_max_rpm": 6200,
-        "kickdown_lockout_after_upshift_s": 0.70,
-        "enable_unload_upshift_guard": True,
-        "unload_suspension_threshold": 0.09,
-        "unload_guard_after_detect_s": 0.28,
-        "unload_min_throttle": 0.32,
-        "enable_slip_upshift_guard": True,
-        "slip_upshift_guard_threshold": 0.18,
-        "slip_guard_after_detect_s": 0.22,
-        "slip_guard_min_throttle": 0.28,
+        **_preset_with_defaults(
+            {
+                "upshift_rpm_low_throttle": 3300,
+                "upshift_rpm_high_throttle": 7600,
+                "downshift_rpm_low_throttle": 1450,
+                "downshift_rpm_high_throttle": 4300,
+                "min_time_between_shifts": 0.28,
+                "enable_per_gear_dwell": True,
+                "dwell_after_upshift_s": 0.10,
+                "dwell_after_downshift_s": 0.20,
+                "dwell_after_kickdown_s": 0.25,
+                "kickdown_throttle_threshold": 0.82,
+                "kickdown_max_rpm": 6200,
+                "kickdown_lockout_after_upshift_s": 0.70,
+                "enable_unload_upshift_guard": True,
+                "unload_suspension_threshold": 0.09,
+                "unload_guard_after_detect_s": 0.28,
+                "unload_min_throttle": 0.32,
+                "enable_slip_upshift_guard": True,
+                "slip_upshift_guard_threshold": 0.18,
+                "slip_guard_after_detect_s": 0.22,
+                "slip_guard_min_throttle": 0.28,
+            }
+        )
     },
 }
 
@@ -641,7 +703,7 @@ class MainWindow(QMainWindow):
         self._shift_up_scan_code = SC_E
         self._shift_down_key_name = "Q"
         self._shift_up_key_name = "E"
-        self._preset_store: dict[str, dict[str, float | int | bool | str]] = {}
+        self._preset_store: dict[str, dict[str, object]] = {}
         self._active_preset_name = ""
         self._default_binding_preset_name = ""
         self._car_preset_map: dict[str, str] = {}
@@ -1044,29 +1106,60 @@ class MainWindow(QMainWindow):
         thread.start()
 
     def _build_at_config_from_editor(self) -> AutomaticTransmissionConfig:
+        values = self._collect_full_tuning_values()
         return AutomaticTransmissionConfig(
-            upshift_rpm_low_throttle=float(self.upshift_low_input.value()),
-            upshift_rpm_high_throttle=float(self.upshift_high_input.value()),
-            downshift_rpm_low_throttle=float(self.downshift_low_input.value()),
-            downshift_rpm_high_throttle=float(self.downshift_high_input.value()),
-            min_time_between_shifts=float(self.cooldown_input.value()),
-            enable_per_gear_dwell=self.enable_dwell_checkbox.isChecked(),
-            dwell_after_upshift_s=float(self.dwell_up_input.value()),
-            dwell_after_downshift_s=float(self.dwell_down_input.value()),
-            dwell_after_kickdown_s=float(self.dwell_kickdown_input.value()),
-            kickdown_throttle_threshold=float(self.kickdown_threshold_input.value()),
-            kickdown_max_rpm=float(self.kickdown_max_rpm_input.value()),
-            kickdown_lockout_after_upshift_s=float(self.kickdown_lockout_input.value()),
-            enable_unload_upshift_guard=bool(
-                self.enable_unload_guard_checkbox.isChecked()
+            upshift_rpm_low_throttle=float(values["upshift_rpm_low_throttle"]),
+            upshift_rpm_high_throttle=float(values["upshift_rpm_high_throttle"]),
+            downshift_rpm_low_throttle=float(values["downshift_rpm_low_throttle"]),
+            downshift_rpm_high_throttle=float(values["downshift_rpm_high_throttle"]),
+            min_time_between_shifts=float(values["min_time_between_shifts"]),
+            pending_shift_timeout=float(values["pending_shift_timeout"]),
+            min_forward_gear=int(values["min_forward_gear"]),
+            max_forward_gear=int(values["max_forward_gear"]),
+            min_speed_for_upshift_mps=float(values["min_speed_for_upshift_mps"]),
+            min_speed_for_downshift_mps=float(values["min_speed_for_downshift_mps"]),
+            min_throttle_for_upshift=float(values["min_throttle_for_upshift"]),
+            min_throttle_for_downshift=float(values["min_throttle_for_downshift"]),
+            brake_downshift_threshold=float(values["brake_downshift_threshold"]),
+            coast_throttle_threshold=float(values["coast_throttle_threshold"]),
+            coast_brake_threshold=float(values["coast_brake_threshold"]),
+            coast_downshift_idle_rpm_margin=float(
+                values["coast_downshift_idle_rpm_margin"]
             ),
-            unload_suspension_threshold=float(self.unload_threshold_input.value()),
-            unload_guard_after_detect_s=float(self.unload_guard_duration_input.value()),
-            unload_min_throttle=float(self.unload_min_throttle_input.value()),
-            enable_slip_upshift_guard=bool(self.enable_slip_guard_checkbox.isChecked()),
-            slip_upshift_guard_threshold=float(self.slip_threshold_input.value()),
-            slip_guard_after_detect_s=float(self.slip_guard_duration_input.value()),
-            slip_guard_min_throttle=float(self.slip_min_throttle_input.value()),
+            coast_downshift_max_speed_mps=float(
+                values["coast_downshift_max_speed_mps"]
+            ),
+            kickdown_throttle_threshold=float(values["kickdown_throttle_threshold"]),
+            kickdown_max_rpm=float(values["kickdown_max_rpm"]),
+            kickdown_lockout_after_upshift_s=float(
+                values["kickdown_lockout_after_upshift_s"]
+            ),
+            max_pedal_value=int(values["max_pedal_value"]),
+            throttle_smoothing_alpha=float(values["throttle_smoothing_alpha"]),
+            enable_per_gear_dwell=bool(values["enable_per_gear_dwell"]),
+            dwell_after_upshift_s=float(values["dwell_after_upshift_s"]),
+            dwell_after_downshift_s=float(values["dwell_after_downshift_s"]),
+            dwell_after_kickdown_s=float(values["dwell_after_kickdown_s"]),
+            per_gear_dwell_overrides=dict(values["per_gear_dwell_overrides"]),
+            enable_low_speed_recovery_downshift=bool(
+                values["enable_low_speed_recovery_downshift"]
+            ),
+            low_speed_recovery_max_speed_mps=float(
+                values["low_speed_recovery_max_speed_mps"]
+            ),
+            low_speed_recovery_rpm_margin=float(
+                values["low_speed_recovery_rpm_margin"]
+            ),
+            allow_upshift_from_neutral=bool(values["allow_upshift_from_neutral"]),
+            allow_reverse_while_moving=bool(values["allow_reverse_while_moving"]),
+            enable_unload_upshift_guard=bool(values["enable_unload_upshift_guard"]),
+            unload_suspension_threshold=float(values["unload_suspension_threshold"]),
+            unload_guard_after_detect_s=float(values["unload_guard_after_detect_s"]),
+            unload_min_throttle=float(values["unload_min_throttle"]),
+            enable_slip_upshift_guard=bool(values["enable_slip_upshift_guard"]),
+            slip_upshift_guard_threshold=float(values["slip_upshift_guard_threshold"]),
+            slip_guard_after_detect_s=float(values["slip_guard_after_detect_s"]),
+            slip_guard_min_throttle=float(values["slip_guard_min_throttle"]),
         )
 
     def _set_input_controls_enabled(self, enabled: bool) -> None:
@@ -1243,6 +1336,49 @@ class MainWindow(QMainWindow):
             "slip_guard_min_throttle": float(self.slip_min_throttle_input.value()),
         }
 
+    def _normalize_preset_values(
+        self, values: dict[str, object] | None
+    ) -> dict[str, object]:
+        normalized: dict[str, object] = dict(values) if isinstance(values, dict) else {}
+        for key, default_value in DEFAULT_AT_CONFIG_VALUES.items():
+            if key not in normalized:
+                normalized[key] = default_value
+
+        raw_dwell_overrides = normalized.get("per_gear_dwell_overrides", {})
+        if isinstance(raw_dwell_overrides, dict):
+            dwell_overrides: dict[int, float] = {}
+            for raw_gear, raw_seconds in raw_dwell_overrides.items():
+                try:
+                    gear = int(raw_gear)
+                    seconds = float(raw_seconds)
+                except (TypeError, ValueError):
+                    continue
+                dwell_overrides[gear] = seconds
+            normalized["per_gear_dwell_overrides"] = dwell_overrides
+        else:
+            normalized["per_gear_dwell_overrides"] = {}
+
+        return normalized
+
+    def _collect_full_tuning_values(self) -> dict[str, object]:
+        base = self._normalize_preset_values(
+            self._preset_store.get(self._active_preset_name)
+        )
+        base.update(self._collect_tuning_values())
+        return base
+
+    def _collect_preset_payload(self) -> dict[str, object]:
+        payload = self._collect_full_tuning_values()
+        payload.update(
+            {
+                "shift_down_scan_code": int(self._shift_down_scan_code),
+                "shift_up_scan_code": int(self._shift_up_scan_code),
+                "shift_down_key_name": self._shift_down_key_name,
+                "shift_up_key_name": self._shift_up_key_name,
+            }
+        )
+        return payload
+
     def _apply_tuning_values(self, values: dict[str, float | int | bool]) -> None:
         self.upshift_low_input.setValue(
             int(values.get("upshift_rpm_low_throttle", self.upshift_low_input.value()))
@@ -1412,18 +1548,13 @@ class MainWindow(QMainWindow):
             name = token[4:]
             key = getattr(keyboard.Key, name, None)
             return self._canonical_hotkey_key(key)
-        plain_key = getattr(keyboard.Key, token.lower(), None)
-        if plain_key is not None:
-            return self._canonical_hotkey_key(plain_key)
-        if len(token) == 1:
-            return self._canonical_hotkey_key(keyboard.KeyCode.from_char(token.lower()))
         return None
 
     def _collect_app_state(self) -> dict[str, object]:
         hotkey_tokens = [
             self._key_to_token(k) for k in (self._current_hotkey or frozenset())
         ]
-        current_tuning = self._collect_tuning_values()
+        current_tuning = self._collect_full_tuning_values()
         user_presets = {
             name: preset
             for name, preset in self._preset_store.items()
@@ -1459,51 +1590,38 @@ class MainWindow(QMainWindow):
         }
 
     def _apply_app_state(self, state: dict[str, object]) -> None:
-        self.listen_address_input.setText(
-            str(state.get("listen_address", self.listen_address_input.text()))
-        )
-        self.port_input.setValue(int(state.get("udp_port", self.port_input.value())))
-        self.dry_run_checkbox.setChecked(
-            bool(state.get("dry_run", self.dry_run_checkbox.isChecked()))
-        )
-        self.focus_guard_checkbox.setChecked(
-            bool(state.get("focus_guard", self.focus_guard_checkbox.isChecked()))
-        )
-        saved_log_level = str(
-            state.get("log_level", self.log_level_input.currentText())
-        )
+        schema_version = int(state["schema_version"])
+        if schema_version != 3:
+            raise ValueError(
+                f"Unsupported app state schema_version={schema_version}; expected 3"
+            )
+
+        self.listen_address_input.setText(str(state["listen_address"]))
+        self.port_input.setValue(int(state["udp_port"]))
+        self.dry_run_checkbox.setChecked(bool(state["dry_run"]))
+        self.focus_guard_checkbox.setChecked(bool(state["focus_guard"]))
+        saved_log_level = str(state["log_level"])
         if saved_log_level in LOG_LEVEL_ORDER:
             self.log_level_input.setCurrentText(saved_log_level)
+        else:
+            raise ValueError(f"Unsupported log_level '{saved_log_level}' in state")
 
-        self._shift_down_scan_code = int(
-            state.get("shift_down_scan_code", self._shift_down_scan_code)
-        )
-        self._shift_up_scan_code = int(
-            state.get("shift_up_scan_code", self._shift_up_scan_code)
-        )
-        self._shift_down_key_name = str(
-            state.get("shift_down_key_name", self._shift_down_key_name)
-        )
-        self._shift_up_key_name = str(
-            state.get("shift_up_key_name", self._shift_up_key_name)
-        )
+        self._shift_down_scan_code = int(state["shift_down_scan_code"])
+        self._shift_up_scan_code = int(state["shift_up_scan_code"])
+        self._shift_down_key_name = str(state["shift_down_key_name"])
+        self._shift_up_key_name = str(state["shift_up_key_name"])
         self.shift_down_key_label.setText(self._shift_down_key_name)
         self.shift_up_key_label.setText(self._shift_up_key_name)
 
         loaded_hotkeys: list[object] = []
-        hotkey_tokens = state.get("hotkey_tokens", [])
-        if isinstance(hotkey_tokens, list):
-            loaded_hotkeys.extend(
-                self._token_to_key(token)
-                for token in hotkey_tokens
-                if isinstance(token, str)
-            )
-        legacy_hotkey = state.get("hotkey", "")
-        if isinstance(legacy_hotkey, str) and legacy_hotkey.strip():
-            for part in legacy_hotkey.split("+"):
-                key = self._token_to_key(part.strip())
-                if key is not None:
-                    loaded_hotkeys.append(key)
+        hotkey_tokens = state["hotkey_tokens"]
+        if not isinstance(hotkey_tokens, list):
+            raise ValueError("Invalid app state: hotkey_tokens must be a list")
+        loaded_hotkeys.extend(
+            self._token_to_key(token)
+            for token in hotkey_tokens
+            if isinstance(token, str)
+        )
         filtered_keys = [
             key
             for key in (self._canonical_hotkey_key(k) for k in loaded_hotkeys)
@@ -1513,53 +1631,68 @@ class MainWindow(QMainWindow):
             self._current_hotkey = frozenset(filtered_keys)
         self.hotkey_label.setText(f"Hotkey: {self._get_hotkey_name()}")
 
-        tuning_values = state.get("current_tuning", {})
-        if isinstance(tuning_values, dict):
-            self._apply_tuning_values(tuning_values)
+        tuning_values = state["current_tuning"]
+        if not isinstance(tuning_values, dict):
+            raise ValueError("Invalid app state: current_tuning must be an object")
+        self._apply_tuning_values(self._normalize_preset_values(tuning_values))
 
-        presets = state.get("presets", {})
-        if isinstance(presets, dict):
-            normalized: dict[str, dict[str, float | int | bool | str]] = {}
-            for name, value in presets.items():
-                if isinstance(name, str) and isinstance(value, dict):
-                    normalized[name] = value
-            self._preset_store = normalized
+        presets = state["presets"]
+        if not isinstance(presets, dict):
+            raise ValueError("Invalid app state: presets must be an object")
+        normalized: dict[str, dict[str, object]] = {}
+        for name, value in presets.items():
+            if not isinstance(name, str) or not isinstance(value, dict):
+                raise ValueError("Invalid app state: preset entries must be objects")
+            normalized[name] = self._normalize_preset_values(value)
+        self._preset_store = normalized
 
         normalized_car_map: dict[str, str] = {}
         normalized_alias_map: dict[str, str] = {}
-        cars = state.get("cars", {})
-        if isinstance(cars, dict):
-            for car_key, car_entry in cars.items():
-                if not isinstance(car_key, str) or not isinstance(car_entry, dict):
-                    continue
-                preset_name = car_entry.get("preset", "")
-                alias = car_entry.get("alias", "")
-                game = car_entry.get("game", "")
-                car_id = car_entry.get("car_id", "")
-                if not isinstance(car_id, str) or not car_id.strip():
-                    _existing_game, parsed_car_id = self._split_car_key(car_key)
-                    car_id = parsed_car_id
+        cars = state["cars"]
+        if not isinstance(cars, dict):
+            raise ValueError("Invalid app state: cars must be an object")
+        for car_key, car_entry in cars.items():
+            if not isinstance(car_key, str) or not isinstance(car_entry, dict):
+                raise ValueError("Invalid app state: car entries must be objects")
+            preset_name = car_entry["preset"]
+            alias = car_entry["alias"]
+            game = car_entry["game"]
+            car_id = car_entry["car_id"]
 
-                if isinstance(preset_name, str) and preset_name and car_id.strip():
-                    normalized_key = self._car_storage_key(str(game), car_id.strip())
-                    normalized_car_map[normalized_key] = preset_name
-                    if isinstance(alias, str) and alias.strip():
-                        normalized_alias_map[normalized_key] = alias.strip()
+            if not isinstance(preset_name, str) or not preset_name.strip():
+                raise ValueError(
+                    "Invalid app state: car preset must be a non-empty string"
+                )
+            if not isinstance(alias, str):
+                raise ValueError("Invalid app state: car alias must be a string")
+            if not isinstance(game, str):
+                raise ValueError("Invalid app state: car game must be a string")
+            if not isinstance(car_id, str) or not car_id.strip():
+                raise ValueError("Invalid app state: car_id must be a non-empty string")
+
+            normalized_key = self._car_storage_key(game, car_id.strip())
+            normalized_car_map[normalized_key] = preset_name
+            if alias.strip():
+                normalized_alias_map[normalized_key] = alias.strip()
 
         self._car_preset_map = normalized_car_map
         self._car_alias_map = normalized_alias_map
 
-        active_preset = state.get("active_preset", "")
-        if isinstance(active_preset, str):
-            self._active_preset_name = active_preset
+        active_preset = state["active_preset"]
+        if not isinstance(active_preset, str):
+            raise ValueError("Invalid app state: active_preset must be a string")
+        self._active_preset_name = active_preset
 
-        default_binding_preset = state.get("default_binding_preset", "")
-        if isinstance(default_binding_preset, str):
-            self._default_binding_preset_name = default_binding_preset
+        default_binding_preset = state["default_binding_preset"]
+        if not isinstance(default_binding_preset, str):
+            raise ValueError(
+                "Invalid app state: default_binding_preset must be a string"
+            )
+        self._default_binding_preset_name = default_binding_preset
 
     def _load_app_state(self) -> None:
         for name, template in BUILTIN_PRESET_TEMPLATES.items():
-            self._preset_store[name] = dict(template)
+            self._preset_store[name] = self._normalize_preset_values(template)
 
         if not self._active_preset_name:
             self._active_preset_name = self._default_preset_name()
@@ -1575,15 +1708,21 @@ class MainWindow(QMainWindow):
             if isinstance(data, dict):
                 self._apply_app_state(data)
                 for name, template in BUILTIN_PRESET_TEMPLATES.items():
-                    self._preset_store[name] = dict(template)
+                    self._preset_store[name] = self._normalize_preset_values(template)
                 self._normalize_car_preset_map()
                 if self._active_preset_name not in self._preset_store:
                     self._active_preset_name = self._default_preset_name()
                 if self._default_binding_preset_name not in self._preset_store:
                     self._default_binding_preset_name = self._default_preset_name()
                 self.append_log(f"Loaded app state from {self._state_file_path.name}")
-        except (OSError, json.JSONDecodeError, ValueError) as exc:
+        except (OSError, json.JSONDecodeError) as exc:
             self.append_log(f"[WARN] Could not load app state: {exc}")
+        except ValueError as exc:
+            self.append_log(f"[WARN] Ignoring incompatible app state: {exc}")
+            self._save_app_state()
+            self.append_log(
+                f"[INFO] Rewrote {self._state_file_path.name} to schema_version=3."
+            )
 
     def _save_app_state(self) -> None:
         state = self._collect_app_state()
@@ -1649,7 +1788,9 @@ class MainWindow(QMainWindow):
         if self._preset_store:
             return sorted(self._preset_store.keys(), key=str.lower)[0]
         self._preset_store[DEFAULT_CAR_PRESET_NAME] = dict(
-            BUILTIN_PRESET_TEMPLATES[DEFAULT_CAR_PRESET_NAME]
+            self._normalize_preset_values(
+                BUILTIN_PRESET_TEMPLATES[DEFAULT_CAR_PRESET_NAME]
+            )
         )
         return DEFAULT_CAR_PRESET_NAME
 
@@ -1924,7 +2065,8 @@ class MainWindow(QMainWindow):
     def _load_preset_into_editor(self, name: str) -> None:
         if not name or name not in self._preset_store:
             return
-        preset = self._preset_store[name]
+        preset = self._normalize_preset_values(self._preset_store[name])
+        self._preset_store[name] = dict(preset)
         self._apply_tuning_values(preset)
         self._shift_down_scan_code = int(
             preset.get("shift_down_scan_code", self._shift_down_scan_code)
@@ -1986,13 +2128,7 @@ class MainWindow(QMainWindow):
             if answer == QMessageBox.StandardButton.Ok:
                 self.append_log("[INFO] Preset creation canceled.")
             return
-        preset_data = {
-            **self._collect_tuning_values(),
-            "shift_down_scan_code": int(self._shift_down_scan_code),
-            "shift_up_scan_code": int(self._shift_up_scan_code),
-            "shift_down_key_name": self._shift_down_key_name,
-            "shift_up_key_name": self._shift_up_key_name,
-        }
+        preset_data = self._collect_preset_payload()
         self._preset_store[name] = preset_data
         self._active_preset_name = name
         self._refresh_preset_selector()
@@ -2008,13 +2144,7 @@ class MainWindow(QMainWindow):
         if name.lower() in BUILTIN_PRESET_TEMPLATES:
             self.append_log("[WARN] Built-in presets cannot be saved/overwritten.")
             return
-        self._preset_store[name] = {
-            **self._collect_tuning_values(),
-            "shift_down_scan_code": int(self._shift_down_scan_code),
-            "shift_up_scan_code": int(self._shift_up_scan_code),
-            "shift_down_key_name": self._shift_down_key_name,
-            "shift_up_key_name": self._shift_up_key_name,
-        }
+        self._preset_store[name] = self._collect_preset_payload()
         self._save_app_state()
         self.append_log(f"[INFO] Saved preset '{name}'.")
 

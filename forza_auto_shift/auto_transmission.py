@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import time
 
 from .telemetry import TelemetryPacket
@@ -10,53 +10,53 @@ from .telemetry import TelemetryPacket
 
 @dataclass(slots=True)
 class AutomaticTransmissionConfig:
-    upshift_rpm_low_throttle: float = 2800.0
-    upshift_rpm_high_throttle: float = 7000.0
-    downshift_rpm_low_throttle: float = 1100.0
-    downshift_rpm_high_throttle: float = 3600.0
-    min_time_between_shifts: float = 0.35
-    pending_shift_timeout: float = 0.75
-    min_forward_gear: int = 1
-    max_forward_gear: int = 10
-    min_speed_for_upshift_mps: float = 1.0
-    min_speed_for_downshift_mps: float = 4.0
-    min_throttle_for_upshift: float = 0.08
-    min_throttle_for_downshift: float = 0.15
-    brake_downshift_threshold: float = 0.08
-    coast_throttle_threshold: float = 0.05
-    coast_brake_threshold: float = 0.05
-    coast_downshift_idle_rpm_margin: float = 320.0
-    coast_downshift_max_speed_mps: float = 55.0
-    kickdown_throttle_threshold: float = 0.88
-    kickdown_max_rpm: float = 5200.0
-    kickdown_lockout_after_upshift_s: float = 1.10
-    max_pedal_value: int = 255
-    throttle_smoothing_alpha: float = 0.30
-    enable_per_gear_dwell: bool = False
-    dwell_after_upshift_s: float = 0.0
-    dwell_after_downshift_s: float = 0.0
-    dwell_after_kickdown_s: float = 0.0
-    per_gear_dwell_overrides: dict[int, float] = field(default_factory=dict)
-    enable_low_speed_recovery_downshift: bool = True
-    low_speed_recovery_max_speed_mps: float = 1.0
-    low_speed_recovery_rpm_margin: float = 150.0
-    allow_upshift_from_neutral: bool = False
-    allow_reverse_while_moving: bool = False
-    enable_unload_upshift_guard: bool = True
-    unload_suspension_threshold: float = 0.12
-    unload_guard_after_detect_s: float = 0.35
-    unload_min_throttle: float = 0.45
-    enable_slip_upshift_guard: bool = True
-    slip_upshift_guard_threshold: float = 0.28
-    slip_guard_after_detect_s: float = 0.30
-    slip_guard_min_throttle: float = 0.45
+    upshift_rpm_low_throttle: float
+    upshift_rpm_high_throttle: float
+    downshift_rpm_low_throttle: float
+    downshift_rpm_high_throttle: float
+    min_time_between_shifts: float
+    pending_shift_timeout: float
+    min_forward_gear: int
+    max_forward_gear: int
+    min_speed_for_upshift_mps: float
+    min_speed_for_downshift_mps: float
+    min_throttle_for_upshift: float
+    min_throttle_for_downshift: float
+    brake_downshift_threshold: float
+    coast_throttle_threshold: float
+    coast_brake_threshold: float
+    coast_downshift_idle_rpm_margin: float
+    coast_downshift_max_speed_mps: float
+    kickdown_throttle_threshold: float
+    kickdown_max_rpm: float
+    kickdown_lockout_after_upshift_s: float
+    max_pedal_value: int
+    throttle_smoothing_alpha: float
+    enable_per_gear_dwell: bool
+    dwell_after_upshift_s: float
+    dwell_after_downshift_s: float
+    dwell_after_kickdown_s: float
+    per_gear_dwell_overrides: dict[int, float]
+    enable_low_speed_recovery_downshift: bool
+    low_speed_recovery_max_speed_mps: float
+    low_speed_recovery_rpm_margin: float
+    allow_upshift_from_neutral: bool
+    allow_reverse_while_moving: bool
+    enable_unload_upshift_guard: bool
+    unload_suspension_threshold: float
+    unload_guard_after_detect_s: float
+    unload_min_throttle: float
+    enable_slip_upshift_guard: bool
+    slip_upshift_guard_threshold: float
+    slip_guard_after_detect_s: float
+    slip_guard_min_throttle: float
 
 
 class AdaptiveAutomaticTransmission:
     """AT controller using throttle-based RPM maps, hysteresis, and kickdown."""
 
-    def __init__(self, config: AutomaticTransmissionConfig | None = None) -> None:
-        self.config = config or AutomaticTransmissionConfig()
+    def __init__(self, config: AutomaticTransmissionConfig) -> None:
+        self.config = config
         self._last_shift_time = 0.0
         self._last_gear: int | None = None
         self._pending_shift = False
