@@ -749,9 +749,7 @@ class MainWindow(QMainWindow):
         # Tab widget for settings
         tabs = QTabWidget()
 
-        # ===== CONNECTION TAB =====
-        connection_widget = QWidget()
-        connection_layout = QVBoxLayout(connection_widget)
+        # ===== CONNECTION GROUP (in Options tab) =====
         connection_group = QGroupBox("Connection")
         connection_form = QFormLayout(connection_group)
         self._set_compact_form(connection_form)
@@ -763,13 +761,8 @@ class MainWindow(QMainWindow):
         self.port_input.setValue(DEFAULT_TELEMETRY_PORT)
         self._set_compact_numeric_input(self.port_input)
         connection_form.addRow("UDP port:", self.port_input)
-        connection_layout.addWidget(connection_group)
-        connection_layout.addStretch()
-        tabs.addTab(connection_widget, "Connection")
 
-        # ===== INPUT TAB =====
-        input_widget = QWidget()
-        input_layout = QVBoxLayout(input_widget)
+        # ===== INPUT GROUP (in Options tab) =====
         input_group = QGroupBox("Input")
         input_form = QFormLayout(input_group)
         self._set_compact_form(input_form)
@@ -801,9 +794,6 @@ class MainWindow(QMainWindow):
         shift_up_row.addStretch(1)
         shift_up_row.addWidget(self.record_shift_up_button)
         input_form.addRow("Shift up key:", shift_up_row)
-        input_layout.addWidget(input_group)
-        input_layout.addStretch()
-        tabs.addTab(input_widget, "Input")
 
         # ===== TUNING TAB WITH PRESET EDITOR =====
         tuning_widget = QWidget()
@@ -1030,9 +1020,24 @@ class MainWindow(QMainWindow):
         # ===== OPTIONS TAB =====
         options_widget = QWidget()
         options_layout = QVBoxLayout(options_widget)
-        options_group = QGroupBox("Audio")
+        options_group = QGroupBox("General")
         options_form = QFormLayout(options_group)
         self._set_compact_form(options_form)
+        self.record_hotkey_button = QPushButton("Record Hotkey")
+        self.record_hotkey_button.clicked.connect(self._start_hotkey_recording)
+        options_form.addRow("Global hotkey:", self.record_hotkey_button)
+        self.log_level_input = QComboBox()
+        self.log_level_input.addItems(["DEBUG", "INFO", "WARN", "ERROR"])
+        self.log_level_input.setCurrentText("INFO")
+        self.log_level_input.setMaximumWidth(110)
+        options_form.addRow("Log level:", self.log_level_input)
+        options_layout.addWidget(connection_group)
+        options_layout.addWidget(input_group)
+        options_layout.addWidget(options_group)
+
+        audio_group = QGroupBox("Audio")
+        audio_form = QFormLayout(audio_group)
+        self._set_compact_form(audio_form)
         self.play_worker_chime_checkbox = QCheckBox(
             "Play chime when worker starts/stops"
         )
@@ -1040,8 +1045,8 @@ class MainWindow(QMainWindow):
         self.play_worker_chime_checkbox.toggled.connect(
             self._on_play_worker_chime_toggled
         )
-        options_form.addRow(self.play_worker_chime_checkbox)
-        options_layout.addWidget(options_group)
+        audio_form.addRow(self.play_worker_chime_checkbox)
+        options_layout.addWidget(audio_group)
         options_layout.addStretch()
         tabs.addTab(options_widget, "Options")
 
@@ -1050,17 +1055,6 @@ class MainWindow(QMainWindow):
 
         # ===== CONTROLS BAR =====
         controls = QHBoxLayout()
-        self.record_hotkey_button = QPushButton("Record Hotkey")
-        self.record_hotkey_button.clicked.connect(self._start_hotkey_recording)
-        controls.addWidget(self.record_hotkey_button)
-        self.hotkey_label = QLabel(f"Hotkey: {self._get_hotkey_name()}")
-        controls.addWidget(self.hotkey_label)
-        controls.addWidget(QLabel("Log level:"))
-        self.log_level_input = QComboBox()
-        self.log_level_input.addItems(["DEBUG", "INFO", "WARN", "ERROR"])
-        self.log_level_input.setCurrentText("INFO")
-        self.log_level_input.setMaximumWidth(110)
-        controls.addWidget(self.log_level_input)
         self.clear_log_button = QPushButton("Clear Log")
         self.clear_log_button.clicked.connect(self._clear_log)
         controls.addWidget(self.clear_log_button)
@@ -1068,6 +1062,8 @@ class MainWindow(QMainWindow):
         self.save_log_button.clicked.connect(self._save_log_to_file)
         controls.addWidget(self.save_log_button)
         controls.addStretch(1)
+        self.hotkey_label = QLabel(f"Hotkey: {self._get_hotkey_name()}")
+        controls.addWidget(self.hotkey_label)
         self.start_button = QPushButton("Start")
         self.start_button.clicked.connect(self.start_worker)
         controls.addWidget(self.start_button)
