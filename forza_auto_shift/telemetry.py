@@ -108,7 +108,16 @@ DASH_FIELDS_CLASSIC_EXTRA = [
     ("NormalizedAIBrakeDifference", "b"),
 ]
 
+DASH_FIELDS_FM_EXTRA = DASH_FIELDS_CLASSIC_EXTRA + [
+    ("TireWearFrontLeft", "f"),
+    ("TireWearFrontRight", "f"),
+    ("TireWearRearLeft", "f"),
+    ("TireWearRearRight", "f"),
+    ("TrackOrdinal", "i"),
+]
+
 DASH_FIELDS_CLASSIC = SLED_FIELDS_FM + DASH_FIELDS_CLASSIC_EXTRA
+DASH_FIELDS_FM = SLED_FIELDS_FM + DASH_FIELDS_FM_EXTRA
 
 
 class UnknownPacketSizeError(ValueError):
@@ -161,7 +170,14 @@ class TelemetryPacket:
     def gear(self) -> int | None:
         if "Gear" not in self.values:
             return None
-        return int(self.values["Gear"])
+        raw_gear = int(self.values["Gear"])
+        if raw_gear < 0:
+            return None
+        # FM 2023 can briefly report raw gear 11 during shift transitions.
+        # Treat those transient sentinel values as unknown so AT logic ignores them.
+        if self.packet_type == "Dash-FM" and raw_gear >= 11:
+            return None
+        return raw_gear
 
     @property
     def accel(self) -> int | None:
@@ -220,8 +236,8 @@ def decode_packet(data: bytes) -> TelemetryPacket:
     candidates_by_size: dict[int, list[tuple[str, list[tuple[str, str]]]]] = {
         SLED_SIZE_FM: [("Sled-FM", SLED_FIELDS_FM)],
         DASH_SIZE_CLASSIC: [("Dash-Classic", DASH_FIELDS_CLASSIC)],
-        # FM dash packet variant with additional trailing bytes.
-        DASH_SIZE_FM_RAW: [("Dash-FM", DASH_FIELDS_CLASSIC)],
+        # FM dash packet variant with additional trailing fields.
+        DASH_SIZE_FM_RAW: [("Dash-FM", DASH_FIELDS_FM)],
         SLED_SIZE_FH: [("Sled-FH", SLED_FIELDS_FM[:-2])],
     }
 
