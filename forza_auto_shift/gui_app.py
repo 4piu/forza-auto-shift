@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import socket
-import queue
 import sys
-import threading
 import time
 import ctypes
-import os
 import json
 from pathlib import Path
 
@@ -49,22 +45,42 @@ except Exception:
     QSoundEffect = None
 
 from .auto_transmission import (
-    AdaptiveAutomaticTransmission,
     AutomaticTransmissionConfig,
 )
-from .input_controller import GearInputConfig, GearInputController, SC_E, SC_Q
-from .telemetry import (
-    DEFAULT_TELEMETRY_PORT,
-    PacketDecodeError,
-    TelemetryListener,
-    UnknownPacketSizeError,
-    decode_packet,
-    format_packet_summary,
+from .input_controller import SC_E, SC_Q
+from .preset_binding_service import (
+    build_car_binding_rows,
+    car_storage_key,
+    cars_assigned_to_preset,
+    create_or_update_preset,
+    default_preset_name,
+    duplicate_preset,
+    format_car_keys,
+    normalize_car_preset_maps,
+    normalize_game_code,
+    reassign_cars_to_preset,
+    remove_preset_entry,
+    rename_preset_entry,
+    rename_preset_references,
+    resolve_selected_name,
+    sorted_preset_names,
+    split_car_key,
+    upsert_detected_car,
+    validate_new_preset_name,
+    validate_rename_preset,
 )
+from .state_persistence import (
+    APP_STATE_FILE_NAME,
+    SCHEMA_VERSION,
+    build_app_state_payload,
+    load_state_file,
+    normalize_preset_values,
+    parse_app_state_payload,
+    save_state_file,
+)
+from .telemetry import DEFAULT_TELEMETRY_PORT
+from .workers.auto_shift_worker import AutoShiftWorker
 
-PRINT_EVERY = 20
-TELEMETRY_STALE_SECONDS = 1.5
-PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 LOG_LEVEL_ORDER = {
     "DEBUG": 10,
     "INFO": 20,
@@ -72,7 +88,6 @@ LOG_LEVEL_ORDER = {
     "ERROR": 40,
 }
 MAPVK_VK_TO_VSC = 0
-APP_STATE_FILE_NAME = "forza_auto_shift_state.json"
 DEFAULT_CAR_PRESET_NAME = "street"
 
 DEFAULT_AT_CONFIG_VALUES: dict[str, object] = {
@@ -118,20 +133,6 @@ DEFAULT_AT_CONFIG_VALUES: dict[str, object] = {
     "slip_guard_after_detect_s": 0.30,
     "slip_guard_min_throttle": 0.45,
 }
-
-PROCESS_NAME_TO_GAME_CODE = {
-    "forzahorizon4.exe": "FH4",
-    "forzahorizon5.exe": "FH5",
-    "forzamotorsport.exe": "FM",
-    "forza_gaming.desktop.x64_release_final.exe": "FM",
-}
-
-
-def detect_game_code_from_process_name(process_name: str | None) -> str:
-    if not process_name:
-        return ""
-    return PROCESS_NAME_TO_GAME_CODE.get(process_name.lower(), "")
-
 
 SPECIAL_KEY_VK_MAP = {
     keyboard.Key.space: 0x20,
@@ -262,436 +263,6 @@ BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, object]] = {
         )
     },
 }
-
-FORZA_PROCESS_NAMES = {
-    "forzahorizon4.exe",
-    "forzahorizon5.exe",
-    "forzamotorsport.exe",
-    "forza_gaming.desktop.x64_release_final.exe",
-}
-
-FORZA_TITLE_KEYWORDS = (
-    "forza horizon",
-    "forza motorsport",
-)
-
-
-def _get_foreground_window_title_and_process() -> tuple[str, str | None]:
-    user32 = ctypes.windll.user32
-    kernel32 = ctypes.windll.kernel32
-
-    hwnd = user32.GetForegroundWindow()
-    if not hwnd:
-        return "", None
-
-    title_buffer = ctypes.create_unicode_buffer(512)
-    user32.GetWindowTextW(hwnd, title_buffer, len(title_buffer))
-    title = title_buffer.value
-
-    pid = ctypes.c_ulong(0)
-    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-    if pid.value == 0:
-        return title, None
-
-    process_handle = kernel32.OpenProcess(
-        PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value
-    )
-    if not process_handle:
-        return title, None
-
-    try:
-        path_buffer = ctypes.create_unicode_buffer(1024)
-        size = ctypes.c_ulong(len(path_buffer))
-        success = kernel32.QueryFullProcessImageNameW(
-            process_handle,
-            0,
-            path_buffer,
-            ctypes.byref(size),
-        )
-        if not success:
-            return title, None
-        process_name = os.path.basename(path_buffer.value).lower()
-        return title, process_name
-    finally:
-        kernel32.CloseHandle(process_handle)
-
-
-def is_game_window_active() -> bool:
-    title, process_name = _get_foreground_window_title_and_process()
-    title_lower = title.lower()
-
-    if "forza auto shift" in title_lower:
-        return False
-
-    if process_name in FORZA_PROCESS_NAMES:
-        return True
-
-    return any(keyword in title_lower for keyword in FORZA_TITLE_KEYWORDS)
-
-
-class AutoShiftWorker(QObject):
-    """Runs telemetry receive/decode/shift loop in a background thread."""
-
-    log = Signal(str)
-    status = Signal(str)
-    car_detected = Signal(int, str)
-    finished = Signal()
-
-    def __init__(
-        self,
-        bind_host: str,
-        port: int,
-        dry_run: bool,
-        relay_enabled: bool,
-        relay_targets: list[tuple[str, int]],
-        require_focus_guard: bool,
-        shift_down_scan_code: int,
-        shift_up_scan_code: int,
-        shift_down_key_name: str,
-        shift_up_key_name: str,
-        at_config: AutomaticTransmissionConfig,
-        log_level: str,
-    ) -> None:
-        super().__init__()
-        self.bind_host = bind_host
-        self.port = port
-        self.dry_run = dry_run
-        self.relay_enabled = relay_enabled
-        self.relay_targets = relay_targets
-        self.require_focus_guard = require_focus_guard
-        self.shift_down_scan_code = shift_down_scan_code
-        self.shift_up_scan_code = shift_up_scan_code
-        self.shift_down_key_name = shift_down_key_name
-        self.shift_up_key_name = shift_up_key_name
-        self.at_config = at_config
-        self.log_level = log_level
-        self._stop_event = threading.Event()
-        self._listener: TelemetryListener | None = None
-        self._at_controller: AdaptiveAutomaticTransmission | None = None
-        self._run_state = "Idle"
-        self._telemetry_state = "Waiting"
-        self._focus_state = "N/A"
-        self._game_state = "Unknown"
-        self._last_shift_latency_ms: float | None = None
-        self._relay_queue: queue.Queue[bytes | None] | None = None
-        self._relay_thread: threading.Thread | None = None
-        self._relay_socket: socket.socket | None = None
-        self._relay_dropped_packets = 0
-
-    def _log(self, level: str, message: str) -> None:
-        current_level = LOG_LEVEL_ORDER.get(self.log_level, LOG_LEVEL_ORDER["INFO"])
-        message_level = LOG_LEVEL_ORDER.get(level, LOG_LEVEL_ORDER["INFO"])
-        if message_level >= current_level:
-            self.log.emit(f"[{level}] {message}")
-
-    def _log_at_config(self, context: str) -> None:
-        cfg = self.at_config
-        self._log(
-            "INFO",
-            (
-                f"AT config ({context}): up_low={cfg.upshift_rpm_low_throttle:.0f}, "
-                f"up_high={cfg.upshift_rpm_high_throttle:.0f}, "
-                f"down_low={cfg.downshift_rpm_low_throttle:.0f}, "
-                f"down_high={cfg.downshift_rpm_high_throttle:.0f}, "
-                f"kick_thr={cfg.kickdown_throttle_threshold:.2f}, "
-                f"kick_max={cfg.kickdown_max_rpm:.0f}, "
-                f"cooldown={cfg.min_time_between_shifts:.2f}, "
-                f"dwell={cfg.enable_per_gear_dwell}"
-            ),
-        )
-
-    def _refresh_focus_state(self) -> None:
-        _title, process_name = _get_foreground_window_title_and_process()
-        detected_game = detect_game_code_from_process_name(process_name)
-        next_game_state = detected_game or "Unknown"
-        if self.dry_run or not self.require_focus_guard:
-            next_state = "N/A"
-        else:
-            next_state = "Active" if process_name in FORZA_PROCESS_NAMES else "Blocked"
-
-        if next_state != self._focus_state or next_game_state != self._game_state:
-            self._focus_state = next_state
-            self._game_state = next_game_state
-            self._emit_status()
-
-    def _emit_status(self) -> None:
-        latency_text = (
-            f"{self._last_shift_latency_ms:.1f} ms"
-            if self._last_shift_latency_ms is not None
-            else "N/A"
-        )
-        self.status.emit(
-            f"{self._run_state} | Telemetry: {self._telemetry_state} | Focus: {self._focus_state} | Game: {self._game_state} | Latency: {latency_text}"
-        )
-
-    def _record_shift_latency(self, packet_received_at: float) -> None:
-        if self.dry_run:
-            return
-        self._last_shift_latency_ms = max(
-            0.0, (time.perf_counter() - packet_received_at) * 1000.0
-        )
-        self._emit_status()
-
-    def _start_relay_dispatcher(self) -> None:
-        if not self.relay_enabled or not self.relay_targets:
-            return
-
-        self._relay_queue = queue.Queue(maxsize=4096)
-        self._relay_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._relay_thread = threading.Thread(
-            target=self._relay_dispatch_loop,
-            name="udp-relay-dispatcher",
-            daemon=True,
-        )
-        self._relay_thread.start()
-        self._log(
-            "INFO",
-            f"UDP relay enabled for {len(self.relay_targets)} target(s).",
-        )
-
-    def _stop_relay_dispatcher(self) -> None:
-        relay_queue = self._relay_queue
-        relay_thread = self._relay_thread
-
-        if relay_queue is not None:
-            try:
-                relay_queue.put_nowait(None)
-            except queue.Full:
-                pass
-
-        if relay_thread is not None:
-            relay_thread.join(timeout=0.25)
-
-        if self._relay_socket is not None:
-            self._relay_socket.close()
-
-        if self._relay_dropped_packets > 0:
-            self._log(
-                "WARN",
-                f"UDP relay dropped {self._relay_dropped_packets} packet(s) due to full relay queue.",
-            )
-
-        self._relay_queue = None
-        self._relay_thread = None
-        self._relay_socket = None
-        self._relay_dropped_packets = 0
-
-    def _enqueue_relay_packet(self, raw_data: bytes) -> None:
-        relay_queue = self._relay_queue
-        if relay_queue is None:
-            return
-        try:
-            relay_queue.put_nowait(raw_data)
-        except queue.Full:
-            self._relay_dropped_packets += 1
-
-    def _relay_dispatch_loop(self) -> None:
-        relay_queue = self._relay_queue
-        relay_socket = self._relay_socket
-        if relay_queue is None or relay_socket is None:
-            return
-
-        while not self._stop_event.is_set():
-            try:
-                payload = relay_queue.get(timeout=0.05)
-            except queue.Empty:
-                continue
-
-            if payload is None:
-                break
-
-            for target in self.relay_targets:
-                try:
-                    relay_socket.sendto(payload, target)
-                except OSError:
-                    continue
-
-    @Slot()
-    def run(self) -> None:
-        self._run_state = "Running"
-        self._telemetry_state = "Waiting"
-        self._focus_state = (
-            "N/A" if self.dry_run or not self.require_focus_guard else "Unknown"
-        )
-        self._game_state = "Unknown"
-        self._last_shift_latency_ms = None
-        self._emit_status()
-        self._refresh_focus_state()
-        bind_text = self.bind_host if self.bind_host else "0.0.0.0"
-        self._log("INFO", f"Listening for telemetry on UDP {bind_text}:{self.port}...")
-        self._log("INFO", f"Input mode: {'DRY RUN' if self.dry_run else 'LIVE'}")
-        if not self.dry_run:
-            self._log(
-                "INFO",
-                f"Window focus guard: {'ON' if self.require_focus_guard else 'OFF'}",
-            )
-        self._log(
-            "INFO",
-            f"Controls: {self.shift_down_key_name}=gear down, {self.shift_up_key_name}=gear up",
-        )
-        self._log_at_config("worker-start")
-        self._log("INFO", "-" * 80)
-        self._start_relay_dispatcher()
-
-        at = AdaptiveAutomaticTransmission(self.at_config)
-        self._at_controller = at
-        input_controller = GearInputController(
-            GearInputConfig(
-                dry_run=self.dry_run,
-                shift_down_scan_code=self.shift_down_scan_code,
-                shift_up_scan_code=self.shift_up_scan_code,
-            )
-        )
-
-        packet_count = 0
-        last_packet_type = ""
-        last_packet_time = time.monotonic()
-        last_upshift_block_log_time = 0.0
-        last_car_ordinal: int | None = None
-
-        try:
-            with TelemetryListener(
-                bind_host=self.bind_host, port=self.port
-            ) as listener:
-                self._listener = listener
-                listener.sock.settimeout(0.20)
-
-                while not self._stop_event.is_set():
-                    try:
-                        raw_data, addr = listener.recv_raw()
-                        packet_received_at = time.perf_counter()
-                    except socket.timeout:
-                        self._refresh_focus_state()
-                        now = time.monotonic()
-                        if (
-                            self._telemetry_state == "Connected"
-                            and (now - last_packet_time) >= TELEMETRY_STALE_SECONDS
-                        ):
-                            self._telemetry_state = "Stale"
-                            self._emit_status()
-                        continue
-                    except OSError:
-                        break
-
-                    self._refresh_focus_state()
-                    self._enqueue_relay_packet(raw_data)
-
-                    last_packet_time = time.monotonic()
-                    if self._telemetry_state != "Connected":
-                        self._telemetry_state = "Connected"
-                        self._emit_status()
-
-                    packet_count += 1
-
-                    try:
-                        packet = decode_packet(raw_data)
-                        packet.source = addr
-                    except UnknownPacketSizeError:
-                        self._log(
-                            "WARN",
-                            f"[{packet_count}] Unknown packet size={len(raw_data)} from {addr}",
-                        )
-                        continue
-                    except PacketDecodeError as exc:
-                        self._log(
-                            "WARN",
-                            f"[{packet_count}] Decode error for size={len(raw_data)} from {addr}: {exc}",
-                        )
-                        continue
-
-                    if packet.packet_type != last_packet_type:
-                        self._log(
-                            "INFO",
-                            f"Detected packet format: {packet.packet_type} ({len(raw_data)} bytes)",
-                        )
-                        last_packet_type = packet.packet_type
-
-                    if packet_count <= 5 or packet_count % PRINT_EVERY == 0:
-                        self._log(
-                            "DEBUG", f"[{packet_count}] {format_packet_summary(packet)}"
-                        )
-
-                    if not packet.is_race_on:
-                        continue
-
-                    raw_car_ordinal = packet.values.get("CarOrdinal")
-                    if raw_car_ordinal is not None:
-                        car_ordinal = int(raw_car_ordinal)
-                        if car_ordinal > 0 and car_ordinal != last_car_ordinal:
-                            last_car_ordinal = car_ordinal
-                            self.car_detected.emit(
-                                car_ordinal,
-                                detect_game_code_from_process_name(
-                                    _get_foreground_window_title_and_process()[1]
-                                ),
-                            )
-
-                    action = at.update(packet)
-                    reason = at.last_decision_reason or "n/a"
-                    if action == "upshift":
-                        if self.require_focus_guard and not self.dry_run:
-                            if self._focus_state != "Active":
-                                self._log(
-                                    "WARN",
-                                    f"[{packet_count}] Shift blocked: Forza window not active",
-                                )
-                                continue
-                        self._record_shift_latency(packet_received_at)
-                        input_controller.shift_up()
-                        self._log(
-                            "INFO",
-                            f"[{packet_count}] SHIFT UP | gear={packet.gear} rpm={packet.current_rpm:.0f} speed={packet.speed_kmh or 0.0:.1f} km/h | reason={reason}",
-                        )
-                    elif action == "downshift":
-                        if self.require_focus_guard and not self.dry_run:
-                            if self._focus_state != "Active":
-                                self._log(
-                                    "WARN",
-                                    f"[{packet_count}] Shift blocked: Forza window not active",
-                                )
-                                continue
-                        self._record_shift_latency(packet_received_at)
-                        input_controller.shift_down()
-                        self._log(
-                            "INFO",
-                            f"[{packet_count}] SHIFT DOWN | gear={packet.gear} rpm={packet.current_rpm:.0f} speed={packet.speed_kmh or 0.0:.1f} km/h | reason={reason}",
-                        )
-                    elif at.last_upshift_block_reason:
-                        now = time.monotonic()
-                        if now - last_upshift_block_log_time >= 0.80:
-                            target = at.last_upshift_target_rpm
-                            rpm = packet.current_rpm
-                            if target > 0.0 and rpm >= (target + 100.0):
-                                self._log(
-                                    "WARN",
-                                    f"[{packet_count}] UPSHIFT BLOCKED | gear={packet.gear} rpm={rpm:.0f} target={target:.0f} speed={packet.speed_kmh or 0.0:.1f} km/h | reason={at.last_upshift_block_reason}",
-                                )
-                                last_upshift_block_log_time = now
-        except OSError as exc:
-            self._log("ERROR", f"Listener error: {exc}")
-        finally:
-            self._stop_relay_dispatcher()
-            self._listener = None
-            self._at_controller = None
-            self._run_state = "Stopped"
-            self._telemetry_state = "Stopped"
-            self._emit_status()
-            self.finished.emit()
-
-    @Slot(object)
-    def update_at_config(self, config: object) -> None:
-        if not isinstance(config, AutomaticTransmissionConfig):
-            return
-        self.at_config = config
-        if self._at_controller is not None:
-            self._at_controller.config = config
-            self._log("INFO", "Applied AT config update while running.")
-            self._log_at_config("runtime-update")
-
-    def stop(self) -> None:
-        self._stop_event.set()
-        if self._listener is not None:
-            self._listener.close()
 
 
 class CollapsibleBox(QWidget):
@@ -1642,26 +1213,7 @@ class MainWindow(QMainWindow):
     def _normalize_preset_values(
         self, values: dict[str, object] | None
     ) -> dict[str, object]:
-        normalized: dict[str, object] = dict(values) if isinstance(values, dict) else {}
-        for key, default_value in DEFAULT_AT_CONFIG_VALUES.items():
-            if key not in normalized:
-                normalized[key] = default_value
-
-        raw_dwell_overrides = normalized.get("per_gear_dwell_overrides", {})
-        if isinstance(raw_dwell_overrides, dict):
-            dwell_overrides: dict[int, float] = {}
-            for raw_gear, raw_seconds in raw_dwell_overrides.items():
-                try:
-                    gear = int(raw_gear)
-                    seconds = float(raw_seconds)
-                except (TypeError, ValueError):
-                    continue
-                dwell_overrides[gear] = seconds
-            normalized["per_gear_dwell_overrides"] = dwell_overrides
-        else:
-            normalized["per_gear_dwell_overrides"] = {}
-
-        return normalized
+        return normalize_preset_values(values, DEFAULT_AT_CONFIG_VALUES)
 
     def _collect_full_tuning_values(self) -> dict[str, object]:
         base = self._normalize_preset_values(
@@ -1858,110 +1410,72 @@ class MainWindow(QMainWindow):
             self._key_to_token(k) for k in (self._current_hotkey or frozenset())
         ]
         current_tuning = self._collect_full_tuning_values()
-        user_presets = {
-            name: preset
-            for name, preset in self._preset_store.items()
-            if name.lower() not in BUILTIN_PRESET_TEMPLATES
-        }
-        cars: dict[str, dict[str, str]] = {}
-        for car_key, preset_name in self._car_preset_map.items():
-            game_code, car_id = self._split_car_key(car_key)
-            alias = self._car_alias_map.get(car_key, "").strip()
-            cars[car_key] = {
-                "preset": preset_name,
-                "alias": alias,
-                "game": game_code,
-                "car_id": car_id,
-            }
         relay_targets = [
             self.relay_targets_list.item(i).text().strip()
             for i in range(self.relay_targets_list.count())
             if self.relay_targets_list.item(i) is not None
             and self.relay_targets_list.item(i).text().strip()
         ]
-        return {
-            "schema_version": 5,
-            "listen_address": self.listen_address_input.text().strip(),
-            "udp_port": int(self.port_input.value()),
-            "dry_run": bool(self.dry_run_checkbox.isChecked()),
-            "relay_enabled": bool(self.relay_enabled_checkbox.isChecked()),
-            "relay_targets": relay_targets,
-            "focus_guard": bool(self.focus_guard_checkbox.isChecked()),
-            "play_worker_chime": bool(self.play_worker_chime_checkbox.isChecked()),
-            "log_level": self.log_level_input.currentText(),
-            "shift_down_scan_code": int(self._shift_down_scan_code),
-            "shift_up_scan_code": int(self._shift_up_scan_code),
-            "shift_down_key_name": self._shift_down_key_name,
-            "shift_up_key_name": self._shift_up_key_name,
-            "hotkey_tokens": [t for t in hotkey_tokens if t],
-            "current_tuning": current_tuning,
-            "active_preset": self._active_preset_name,
-            "default_binding_preset": self._default_binding_preset_name,
-            "presets": user_presets,
-            "cars": cars,
-        }
+        return build_app_state_payload(
+            listen_address=self.listen_address_input.text().strip(),
+            udp_port=int(self.port_input.value()),
+            dry_run=bool(self.dry_run_checkbox.isChecked()),
+            relay_enabled=bool(self.relay_enabled_checkbox.isChecked()),
+            relay_targets=relay_targets,
+            focus_guard=bool(self.focus_guard_checkbox.isChecked()),
+            play_worker_chime=bool(self.play_worker_chime_checkbox.isChecked()),
+            log_level=self.log_level_input.currentText(),
+            shift_down_scan_code=int(self._shift_down_scan_code),
+            shift_up_scan_code=int(self._shift_up_scan_code),
+            shift_down_key_name=self._shift_down_key_name,
+            shift_up_key_name=self._shift_up_key_name,
+            hotkey_tokens=hotkey_tokens,
+            current_tuning=current_tuning,
+            active_preset=self._active_preset_name,
+            default_binding_preset=self._default_binding_preset_name,
+            preset_store=self._preset_store,
+            builtin_preset_names=set(BUILTIN_PRESET_TEMPLATES.keys()),
+            car_preset_map=self._car_preset_map,
+            car_alias_map=self._car_alias_map,
+            split_car_key=self._split_car_key,
+        )
 
     def _apply_app_state(self, state: dict[str, object]) -> None:
-        schema_version = int(state["schema_version"])
-        if schema_version != 5:
-            raise ValueError(
-                f"Unsupported app state schema_version={schema_version}; expected 5"
-            )
+        parsed = parse_app_state_payload(
+            state=state,
+            valid_log_levels=set(LOG_LEVEL_ORDER.keys()),
+            parse_relay_target=self._parse_relay_target,
+            normalize_preset=self._normalize_preset_values,
+            car_storage_key=self._car_storage_key,
+        )
 
-        self.listen_address_input.setText(str(state["listen_address"]))
-        self.port_input.setValue(int(state["udp_port"]))
-        self.dry_run_checkbox.setChecked(bool(state["dry_run"]))
-        relay_enabled = state["relay_enabled"]
-        if not isinstance(relay_enabled, bool):
-            raise ValueError("Invalid app state: relay_enabled must be a bool")
-        relay_targets = state["relay_targets"]
-        if not isinstance(relay_targets, list):
-            raise ValueError("Invalid app state: relay_targets must be a list")
+        self.listen_address_input.setText(parsed.listen_address)
+        self.port_input.setValue(parsed.udp_port)
+        self.dry_run_checkbox.setChecked(parsed.dry_run)
         self.relay_targets_list.clear()
-        for raw_target in relay_targets:
-            if not isinstance(raw_target, str):
-                raise ValueError(
-                    "Invalid app state: relay_targets entries must be strings"
-                )
-            parsed = self._parse_relay_target(raw_target)
-            if parsed is None:
-                raise ValueError(
-                    f"Invalid app state: relay target '{raw_target}' is malformed"
-                )
-            self.relay_targets_list.addItem(f"{parsed[0]}:{parsed[1]}")
+        for target in parsed.relay_targets:
+            self.relay_targets_list.addItem(target)
         self.relay_enabled_checkbox.blockSignals(True)
-        self.relay_enabled_checkbox.setChecked(relay_enabled)
+        self.relay_enabled_checkbox.setChecked(parsed.relay_enabled)
         self.relay_enabled_checkbox.blockSignals(False)
-        self._set_relay_ui_enabled(relay_enabled)
-        self.focus_guard_checkbox.setChecked(bool(state["focus_guard"]))
-        play_worker_chime = state["play_worker_chime"]
-        if not isinstance(play_worker_chime, bool):
-            raise ValueError("Invalid app state: play_worker_chime must be a bool")
-        self._play_worker_chime_enabled = play_worker_chime
+        self._set_relay_ui_enabled(parsed.relay_enabled)
+        self.focus_guard_checkbox.setChecked(parsed.focus_guard)
+        self._play_worker_chime_enabled = parsed.play_worker_chime
         self.play_worker_chime_checkbox.blockSignals(True)
-        self.play_worker_chime_checkbox.setChecked(play_worker_chime)
+        self.play_worker_chime_checkbox.setChecked(parsed.play_worker_chime)
         self.play_worker_chime_checkbox.blockSignals(False)
-        saved_log_level = str(state["log_level"])
-        if saved_log_level in LOG_LEVEL_ORDER:
-            self.log_level_input.setCurrentText(saved_log_level)
-        else:
-            raise ValueError(f"Unsupported log_level '{saved_log_level}' in state")
+        self.log_level_input.setCurrentText(parsed.log_level)
 
-        self._shift_down_scan_code = int(state["shift_down_scan_code"])
-        self._shift_up_scan_code = int(state["shift_up_scan_code"])
-        self._shift_down_key_name = str(state["shift_down_key_name"])
-        self._shift_up_key_name = str(state["shift_up_key_name"])
+        self._shift_down_scan_code = parsed.shift_down_scan_code
+        self._shift_up_scan_code = parsed.shift_up_scan_code
+        self._shift_down_key_name = parsed.shift_down_key_name
+        self._shift_up_key_name = parsed.shift_up_key_name
         self.shift_down_key_label.setText(self._shift_down_key_name)
         self.shift_up_key_label.setText(self._shift_up_key_name)
 
         loaded_hotkeys: list[object] = []
-        hotkey_tokens = state["hotkey_tokens"]
-        if not isinstance(hotkey_tokens, list):
-            raise ValueError("Invalid app state: hotkey_tokens must be a list")
         loaded_hotkeys.extend(
-            self._token_to_key(token)
-            for token in hotkey_tokens
-            if isinstance(token, str)
+            self._token_to_key(token) for token in parsed.hotkey_tokens
         )
         filtered_keys = [
             key
@@ -1972,64 +1486,12 @@ class MainWindow(QMainWindow):
             self._current_hotkey = frozenset(filtered_keys)
         self.hotkey_label.setText(f"Hotkey: {self._get_hotkey_name()}")
 
-        tuning_values = state["current_tuning"]
-        if not isinstance(tuning_values, dict):
-            raise ValueError("Invalid app state: current_tuning must be an object")
-        self._apply_tuning_values(self._normalize_preset_values(tuning_values))
-
-        presets = state["presets"]
-        if not isinstance(presets, dict):
-            raise ValueError("Invalid app state: presets must be an object")
-        normalized: dict[str, dict[str, object]] = {}
-        for name, value in presets.items():
-            if not isinstance(name, str) or not isinstance(value, dict):
-                raise ValueError("Invalid app state: preset entries must be objects")
-            normalized[name] = self._normalize_preset_values(value)
-        self._preset_store = normalized
-
-        normalized_car_map: dict[str, str] = {}
-        normalized_alias_map: dict[str, str] = {}
-        cars = state["cars"]
-        if not isinstance(cars, dict):
-            raise ValueError("Invalid app state: cars must be an object")
-        for car_key, car_entry in cars.items():
-            if not isinstance(car_key, str) or not isinstance(car_entry, dict):
-                raise ValueError("Invalid app state: car entries must be objects")
-            preset_name = car_entry["preset"]
-            alias = car_entry["alias"]
-            game = car_entry["game"]
-            car_id = car_entry["car_id"]
-
-            if not isinstance(preset_name, str) or not preset_name.strip():
-                raise ValueError(
-                    "Invalid app state: car preset must be a non-empty string"
-                )
-            if not isinstance(alias, str):
-                raise ValueError("Invalid app state: car alias must be a string")
-            if not isinstance(game, str):
-                raise ValueError("Invalid app state: car game must be a string")
-            if not isinstance(car_id, str) or not car_id.strip():
-                raise ValueError("Invalid app state: car_id must be a non-empty string")
-
-            normalized_key = self._car_storage_key(game, car_id.strip())
-            normalized_car_map[normalized_key] = preset_name
-            if alias.strip():
-                normalized_alias_map[normalized_key] = alias.strip()
-
-        self._car_preset_map = normalized_car_map
-        self._car_alias_map = normalized_alias_map
-
-        active_preset = state["active_preset"]
-        if not isinstance(active_preset, str):
-            raise ValueError("Invalid app state: active_preset must be a string")
-        self._active_preset_name = active_preset
-
-        default_binding_preset = state["default_binding_preset"]
-        if not isinstance(default_binding_preset, str):
-            raise ValueError(
-                "Invalid app state: default_binding_preset must be a string"
-            )
-        self._default_binding_preset_name = default_binding_preset
+        self._apply_tuning_values(parsed.current_tuning)
+        self._preset_store = parsed.presets
+        self._car_preset_map = parsed.car_preset_map
+        self._car_alias_map = parsed.car_alias_map
+        self._active_preset_name = parsed.active_preset
+        self._default_binding_preset_name = parsed.default_binding_preset
 
     def _load_app_state(self) -> None:
         for name, template in BUILTIN_PRESET_TEMPLATES.items():
@@ -2044,32 +1506,29 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            with self._state_file_path.open("r", encoding="utf-8") as handle:
-                data = json.load(handle)
-            if isinstance(data, dict):
-                self._apply_app_state(data)
-                for name, template in BUILTIN_PRESET_TEMPLATES.items():
-                    self._preset_store[name] = self._normalize_preset_values(template)
-                self._normalize_car_preset_map()
-                if self._active_preset_name not in self._preset_store:
-                    self._active_preset_name = self._default_preset_name()
-                if self._default_binding_preset_name not in self._preset_store:
-                    self._default_binding_preset_name = self._default_preset_name()
-                self.append_log(f"Loaded app state from {self._state_file_path.name}")
+            data = load_state_file(self._state_file_path)
+            self._apply_app_state(data)
+            for name, template in BUILTIN_PRESET_TEMPLATES.items():
+                self._preset_store[name] = self._normalize_preset_values(template)
+            self._normalize_car_preset_map()
+            if self._active_preset_name not in self._preset_store:
+                self._active_preset_name = self._default_preset_name()
+            if self._default_binding_preset_name not in self._preset_store:
+                self._default_binding_preset_name = self._default_preset_name()
+            self.append_log(f"Loaded app state from {self._state_file_path.name}")
         except (OSError, json.JSONDecodeError) as exc:
             self.append_log(f"[WARN] Could not load app state: {exc}")
         except ValueError as exc:
             self.append_log(f"[WARN] Ignoring incompatible app state: {exc}")
             self._save_app_state()
             self.append_log(
-                f"[INFO] Rewrote {self._state_file_path.name} to schema_version=5."
+                f"[INFO] Rewrote {self._state_file_path.name} to schema_version={SCHEMA_VERSION}."
             )
 
     def _save_app_state(self) -> None:
         state = self._collect_app_state()
         try:
-            with self._state_file_path.open("w", encoding="utf-8") as handle:
-                json.dump(state, handle, indent=2)
+            save_state_file(self._state_file_path, state)
         except OSError as exc:
             self.append_log(f"[WARN] Could not save app state: {exc}")
 
@@ -2080,37 +1539,22 @@ class MainWindow(QMainWindow):
         self.binding_default_preset_combo.blockSignals(True)
         self.preset_list.clear()
         self.binding_default_preset_combo.clear()
-        for name in sorted(self._preset_store.keys(), key=str.lower):
+        names = sorted_preset_names(self._preset_store)
+        for name in names:
             self.preset_list.addItem(name)
             self.binding_default_preset_combo.addItem(name)
-        if current:
-            names = [
-                self.preset_list.item(i).text() for i in range(self.preset_list.count())
-            ]
-            if current in names:
-                self.preset_list.setCurrentRow(names.index(current))
-            elif self.preset_list.count() > 0:
-                self.preset_list.setCurrentRow(0)
-                self._active_preset_name = self.preset_list.currentItem().text()
-        elif self.preset_list.count() > 0:
-            self.preset_list.setCurrentRow(0)
-            self._active_preset_name = self.preset_list.currentItem().text()
+        self._active_preset_name = resolve_selected_name(current, names)
+        if self._active_preset_name:
+            index = names.index(self._active_preset_name)
+            self.preset_list.setCurrentRow(index)
 
-        binding_default = self._default_binding_preset_name
-        if binding_default:
-            index = self.binding_default_preset_combo.findText(binding_default)
-            if index >= 0:
-                self.binding_default_preset_combo.setCurrentIndex(index)
-            elif self.binding_default_preset_combo.count() > 0:
-                self.binding_default_preset_combo.setCurrentIndex(0)
-                self._default_binding_preset_name = (
-                    self.binding_default_preset_combo.currentText()
-                )
-        elif self.binding_default_preset_combo.count() > 0:
-            self.binding_default_preset_combo.setCurrentIndex(0)
-            self._default_binding_preset_name = (
-                self.binding_default_preset_combo.currentText()
-            )
+        self._default_binding_preset_name = resolve_selected_name(
+            self._default_binding_preset_name,
+            names,
+        )
+        if self._default_binding_preset_name:
+            index = names.index(self._default_binding_preset_name)
+            self.binding_default_preset_combo.setCurrentIndex(index)
 
         self.preset_list.blockSignals(False)
         self.binding_default_preset_combo.blockSignals(False)
@@ -2122,42 +1566,30 @@ class MainWindow(QMainWindow):
             self._load_preset_into_editor(self._active_preset_name)
 
     def _default_preset_name(self) -> str:
-        if self._default_binding_preset_name in self._preset_store:
-            return self._default_binding_preset_name
-        if DEFAULT_CAR_PRESET_NAME in self._preset_store:
-            return DEFAULT_CAR_PRESET_NAME
-        if self._preset_store:
-            return sorted(self._preset_store.keys(), key=str.lower)[0]
-        self._preset_store[DEFAULT_CAR_PRESET_NAME] = dict(
-            self._normalize_preset_values(
-                BUILTIN_PRESET_TEMPLATES[DEFAULT_CAR_PRESET_NAME]
-            )
+        return default_preset_name(
+            preset_store=self._preset_store,
+            default_binding_preset_name=self._default_binding_preset_name,
+            default_car_preset_name=DEFAULT_CAR_PRESET_NAME,
+            builtin_templates=BUILTIN_PRESET_TEMPLATES,
+            normalize_preset_values=self._normalize_preset_values,
         )
-        return DEFAULT_CAR_PRESET_NAME
 
     def _normalize_game_code(self, game_code: str) -> str:
-        code = game_code.strip().upper()
-        if code in {"FH4", "FH5", "FM"}:
-            return code
-        return "FORZA"
+        return normalize_game_code(game_code)
 
     def _car_storage_key(self, game_code: str, car_id: str) -> str:
-        return f"{self._normalize_game_code(game_code)}-{car_id.strip()}"
+        return car_storage_key(game_code, car_id)
 
     def _split_car_key(self, car_key: str) -> tuple[str, str]:
-        if "-" in car_key:
-            raw_game, raw_car_id = car_key.split("-", 1)
-            return self._normalize_game_code(raw_game), raw_car_id.strip()
-        return "FORZA", car_key.strip()
+        return split_car_key(car_key)
 
     def _normalize_car_preset_map(self) -> None:
-        default_preset = self._default_preset_name()
-        for car_key, preset_name in list(self._car_preset_map.items()):
-            if preset_name not in self._preset_store:
-                self._car_preset_map[car_key] = default_preset
-        for car_key in list(self._car_alias_map.keys()):
-            if car_key not in self._car_preset_map:
-                del self._car_alias_map[car_key]
+        normalize_car_preset_maps(
+            car_preset_map=self._car_preset_map,
+            car_alias_map=self._car_alias_map,
+            preset_store=self._preset_store,
+            fallback_preset=self._default_preset_name(),
+        )
 
     @Slot(str)
     def _on_car_filter_changed(self, _value: str) -> None:
@@ -2190,63 +1622,54 @@ class MainWindow(QMainWindow):
             return
 
         default_preset = self._default_preset_name()
+        rows, normalized_updates = build_car_binding_rows(
+            car_preset_map=self._car_preset_map,
+            car_alias_map=self._car_alias_map,
+            preset_store=self._preset_store,
+            default_preset=default_preset,
+            selected_filter=self.car_filter_combo.currentText(),
+        )
+        for car_key, preset_name in normalized_updates.items():
+            self._car_preset_map[car_key] = preset_name
 
-        def _sort_car_key(value: str) -> tuple[str, int]:
-            game_code, car_id = self._split_car_key(value)
-            try:
-                numeric_id = int(car_id)
-            except ValueError:
-                numeric_id = 0
-            return game_code, numeric_id
-
-        selected_filter = self.car_filter_combo.currentText().strip().upper()
-        filtered_car_keys = []
-        for car_key in sorted(self._car_preset_map.keys(), key=_sort_car_key):
-            game_code, _car_id = self._split_car_key(car_key)
-            if selected_filter == "ALL" or game_code == selected_filter:
-                filtered_car_keys.append(car_key)
-
-        if not filtered_car_keys:
+        if not rows:
             empty_label = QLabel("No cars in this filter.")
             empty_label.setStyleSheet("color: gray;")
             self.car_binding_rows_layout.addWidget(empty_label)
             self._suppress_car_binding_updates = False
             return
 
-        for car_key in filtered_car_keys:
-            game_code, car_id = self._split_car_key(car_key)
+        preset_names = sorted_preset_names(self._preset_store)
+        for row in rows:
             row_widget = QWidget()
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(8)
 
-            alias = self._car_alias_map.get(car_key, "").strip()
-            display_name = alias if alias else f"Car {car_id}"
-            car_label = QLabel(display_name)
+            car_label = QLabel(row.display_name)
             car_label.setFixedWidth(210)
-            car_label.setToolTip(f"{game_code}-{car_id}")
+            car_label.setToolTip(f"{row.game_code}-{row.car_id}")
             row_layout.addWidget(car_label)
 
             alias_button = QPushButton("Rename")
             alias_button.setFixedWidth(80)
             alias_button.clicked.connect(
-                lambda _checked=False, car_key=car_key: self._rename_car_alias(car_key)
+                lambda _checked=False, car_key=row.car_key: self._rename_car_alias(
+                    car_key
+                )
             )
             self._car_binding_alias_buttons.append(alias_button)
             row_layout.addWidget(alias_button)
 
             preset_combo = QComboBox()
             preset_combo.setFixedWidth(180)
-            for preset_name in sorted(self._preset_store.keys(), key=str.lower):
+            for preset_name in preset_names:
                 preset_combo.addItem(preset_name)
-            current_preset = self._car_preset_map.get(car_key, default_preset)
-            if preset_combo.findText(current_preset) >= 0:
-                preset_combo.setCurrentText(current_preset)
-            else:
-                preset_combo.setCurrentText(default_preset)
-                self._car_preset_map[car_key] = default_preset
+            preset_combo.setCurrentText(row.preset_name)
             preset_combo.currentTextChanged.connect(
-                lambda name, car_key=car_key: self._on_car_preset_changed(car_key, name)
+                lambda name, car_key=row.car_key: self._on_car_preset_changed(
+                    car_key, name
+                )
             )
             self._car_binding_preset_combos.append(preset_combo)
             row_layout.addWidget(preset_combo)
@@ -2254,7 +1677,7 @@ class MainWindow(QMainWindow):
             remove_button = QPushButton("Remove")
             remove_button.setFixedWidth(80)
             remove_button.clicked.connect(
-                lambda _checked=False, car_key=car_key: self._remove_car_binding(
+                lambda _checked=False, car_key=row.car_key: self._remove_car_binding(
                     car_key
                 )
             )
@@ -2278,12 +1701,14 @@ class MainWindow(QMainWindow):
     def _on_car_detected(self, car_ordinal: int, game_code: str) -> None:
         car_id = str(car_ordinal)
         normalized_game_code = self._normalize_game_code(game_code)
-        car_key = self._car_storage_key(normalized_game_code, car_id)
-
-        was_new = car_key not in self._car_preset_map
+        default_preset = self._default_preset_name()
+        car_key, was_new = upsert_detected_car(
+            car_preset_map=self._car_preset_map,
+            game_code=normalized_game_code,
+            car_id=car_id,
+            default_preset=default_preset,
+        )
         if was_new:
-            default_preset = self._default_preset_name()
-            self._car_preset_map[car_key] = default_preset
             self._refresh_car_preset_list()
             self._save_app_state()
             self.append_log(
@@ -2436,7 +1861,12 @@ class MainWindow(QMainWindow):
         if not ok:
             return
         name = name.strip()
-        if not name:
+        validation_error = validate_new_preset_name(
+            name=name,
+            preset_store=self._preset_store,
+            builtin_templates=BUILTIN_PRESET_TEMPLATES,
+        )
+        if validation_error == "Preset name cannot be empty.":
             QMessageBox.warning(
                 self,
                 "Invalid Preset Name",
@@ -2445,7 +1875,7 @@ class MainWindow(QMainWindow):
             )
             self.append_log("[WARN] Preset name cannot be empty.")
             return
-        if name.lower() in BUILTIN_PRESET_TEMPLATES:
+        if validation_error and "built-in preset" in validation_error.lower():
             QMessageBox.warning(
                 self,
                 "Built-in Preset",
@@ -2459,7 +1889,7 @@ class MainWindow(QMainWindow):
                 f"[WARN] Built-in preset '{name}' cannot be overwritten. Choose another name."
             )
             return
-        if name in self._preset_store:
+        if validation_error and "already exists" in validation_error:
             answer = QMessageBox.question(
                 self,
                 "Preset Exists",
@@ -2470,7 +1900,11 @@ class MainWindow(QMainWindow):
                 self.append_log("[INFO] Preset creation canceled.")
             return
         preset_data = self._collect_preset_payload()
-        self._preset_store[name] = preset_data
+        create_or_update_preset(
+            preset_store=self._preset_store,
+            name=name,
+            preset_data=preset_data,
+        )
         self._active_preset_name = name
         self._refresh_preset_selector()
         self._save_app_state()
@@ -2485,7 +1919,11 @@ class MainWindow(QMainWindow):
         if name.lower() in BUILTIN_PRESET_TEMPLATES:
             self.append_log("[WARN] Built-in presets cannot be saved/overwritten.")
             return
-        self._preset_store[name] = self._collect_preset_payload()
+        create_or_update_preset(
+            preset_store=self._preset_store,
+            name=name,
+            preset_data=self._collect_preset_payload(),
+        )
         self._save_app_state()
         self.append_log(f"[INFO] Saved preset '{name}'.")
 
@@ -2511,7 +1949,11 @@ class MainWindow(QMainWindow):
         if name in self._preset_store:
             self.append_log(f"[WARN] Preset '{name}' already exists.")
             return
-        self._preset_store[name] = dict(self._preset_store[source_name])
+        duplicate_preset(
+            preset_store=self._preset_store,
+            source_name=source_name,
+            target_name=name,
+        )
         self._active_preset_name = name
         self._refresh_preset_selector()
         self._save_app_state()
@@ -2535,17 +1977,28 @@ class MainWindow(QMainWindow):
         if not ok:
             return
         new_name = new_name.strip()
-        if not new_name or new_name == source_name:
+        validation_error = validate_rename_preset(
+            source_name=source_name,
+            new_name=new_name,
+            preset_store=self._preset_store,
+            builtin_templates=BUILTIN_PRESET_TEMPLATES,
+        )
+        if validation_error == "":
             return
-        if new_name in self._preset_store:
-            self.append_log(f"[WARN] Preset '{new_name}' already exists.")
+        if validation_error:
+            self.append_log(f"[WARN] {validation_error}")
             return
-        self._preset_store[new_name] = self._preset_store.pop(source_name)
-        if self._default_binding_preset_name == source_name:
-            self._default_binding_preset_name = new_name
-        for car_key, preset_name in list(self._car_preset_map.items()):
-            if preset_name == source_name:
-                self._car_preset_map[car_key] = new_name
+        rename_preset_entry(
+            preset_store=self._preset_store,
+            source_name=source_name,
+            new_name=new_name,
+        )
+        self._default_binding_preset_name = rename_preset_references(
+            car_preset_map=self._car_preset_map,
+            default_binding_preset_name=self._default_binding_preset_name,
+            source_name=source_name,
+            new_name=new_name,
+        )
         self._active_preset_name = new_name
         self._refresh_preset_selector()
         self._save_app_state()
@@ -2592,17 +2045,13 @@ class MainWindow(QMainWindow):
             self.append_log("[WARN] Built-in presets cannot be deleted.")
             return
         if name in self._preset_store:
-            affected_cars = [
-                car_key
-                for car_key, preset_name in self._car_preset_map.items()
-                if preset_name == name
-            ]
+            affected_cars = cars_assigned_to_preset(
+                car_preset_map=self._car_preset_map,
+                preset_name=name,
+            )
             if affected_cars:
                 default_preset = self._default_preset_name()
-                formatted_cars = [
-                    f"{self._split_car_key(car_key)[0]}-{self._split_car_key(car_key)[1]}"
-                    for car_key in affected_cars
-                ]
+                formatted_cars = format_car_keys(affected_cars)
                 answer = QMessageBox.question(
                     self,
                     "Delete Preset",
@@ -2616,14 +2065,17 @@ class MainWindow(QMainWindow):
                 )
                 if answer != QMessageBox.StandardButton.Yes:
                     return
-                for car_key in affected_cars:
-                    self._car_preset_map[car_key] = default_preset
+                reassign_cars_to_preset(
+                    car_preset_map=self._car_preset_map,
+                    car_keys=affected_cars,
+                    preset_name=default_preset,
+                )
 
             if self._active_preset_name == name:
                 self._active_preset_name = self._default_preset_name()
             if self._default_binding_preset_name == name:
                 self._default_binding_preset_name = self._default_preset_name()
-            del self._preset_store[name]
+            remove_preset_entry(preset_store=self._preset_store, name=name)
             self._refresh_preset_selector()
             self._save_app_state()
             self.append_log(f"[INFO] Deleted preset '{name}'.")
