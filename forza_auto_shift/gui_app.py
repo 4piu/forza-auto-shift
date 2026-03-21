@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import queue
 import sys
 import threading
 import time
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QDoubleSpinBox,
     QFormLayout,
@@ -339,6 +342,8 @@ class AutoShiftWorker(QObject):
         bind_host: str,
         port: int,
         dry_run: bool,
+        relay_enabled: bool,
+        relay_targets: list[tuple[str, int]],
         require_focus_guard: bool,
         shift_down_scan_code: int,
         shift_up_scan_code: int,
@@ -351,6 +356,8 @@ class AutoShiftWorker(QObject):
         self.bind_host = bind_host
         self.port = port
         self.dry_run = dry_run
+        self.relay_enabled = relay_enabled
+        self.relay_targets = relay_targets
         self.require_focus_guard = require_focus_guard
         self.shift_down_scan_code = shift_down_scan_code
         self.shift_up_scan_code = shift_up_scan_code
@@ -366,6 +373,10 @@ class AutoShiftWorker(QObject):
         self._focus_state = "N/A"
         self._game_state = "Unknown"
         self._last_shift_latency_ms: float | None = None
+        self._relay_queue: queue.Queue[bytes | None] | None = None
+        self._relay_thread: threading.Thread | None = None
+        self._relay_socket: socket.socket | None = None
+        self._relay_dropped_packets = 0
 
     def _log(self, level: str, message: str) -> None:
         current_level = LOG_LEVEL_ORDER.get(self.log_level, LOG_LEVEL_ORDER["INFO"])
@@ -421,6 +432,80 @@ class AutoShiftWorker(QObject):
         )
         self._emit_status()
 
+    def _start_relay_dispatcher(self) -> None:
+        if not self.relay_enabled or not self.relay_targets:
+            return
+
+        self._relay_queue = queue.Queue(maxsize=4096)
+        self._relay_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._relay_thread = threading.Thread(
+            target=self._relay_dispatch_loop,
+            name="udp-relay-dispatcher",
+            daemon=True,
+        )
+        self._relay_thread.start()
+        self._log(
+            "INFO",
+            f"UDP relay enabled for {len(self.relay_targets)} target(s).",
+        )
+
+    def _stop_relay_dispatcher(self) -> None:
+        relay_queue = self._relay_queue
+        relay_thread = self._relay_thread
+
+        if relay_queue is not None:
+            try:
+                relay_queue.put_nowait(None)
+            except queue.Full:
+                pass
+
+        if relay_thread is not None:
+            relay_thread.join(timeout=0.25)
+
+        if self._relay_socket is not None:
+            self._relay_socket.close()
+
+        if self._relay_dropped_packets > 0:
+            self._log(
+                "WARN",
+                f"UDP relay dropped {self._relay_dropped_packets} packet(s) due to full relay queue.",
+            )
+
+        self._relay_queue = None
+        self._relay_thread = None
+        self._relay_socket = None
+        self._relay_dropped_packets = 0
+
+    def _enqueue_relay_packet(self, raw_data: bytes) -> None:
+        relay_queue = self._relay_queue
+        if relay_queue is None:
+            return
+        try:
+            relay_queue.put_nowait(raw_data)
+        except queue.Full:
+            self._relay_dropped_packets += 1
+
+    def _relay_dispatch_loop(self) -> None:
+        relay_queue = self._relay_queue
+        relay_socket = self._relay_socket
+        if relay_queue is None or relay_socket is None:
+            return
+
+        while not self._stop_event.is_set():
+            try:
+                payload = relay_queue.get(timeout=0.05)
+            except queue.Empty:
+                continue
+
+            if payload is None:
+                break
+
+            for target in self.relay_targets:
+                try:
+                    relay_socket.sendto(payload, target)
+                except OSError:
+                    continue
+
     @Slot()
     def run(self) -> None:
         self._run_state = "Running"
@@ -446,6 +531,7 @@ class AutoShiftWorker(QObject):
         )
         self._log_at_config("worker-start")
         self._log("INFO", "-" * 80)
+        self._start_relay_dispatcher()
 
         at = AdaptiveAutomaticTransmission(self.at_config)
         self._at_controller = at
@@ -488,6 +574,7 @@ class AutoShiftWorker(QObject):
                         break
 
                     self._refresh_focus_state()
+                    self._enqueue_relay_packet(raw_data)
 
                     last_packet_time = time.monotonic()
                     if self._telemetry_state != "Connected":
@@ -583,6 +670,7 @@ class AutoShiftWorker(QObject):
         except OSError as exc:
             self._log("ERROR", f"Listener error: {exc}")
         finally:
+            self._stop_relay_dispatcher()
             self._listener = None
             self._at_controller = None
             self._run_state = "Stopped"
@@ -761,6 +849,33 @@ class MainWindow(QMainWindow):
         self.port_input.setValue(DEFAULT_TELEMETRY_PORT)
         self._set_compact_numeric_input(self.port_input)
         connection_form.addRow("UDP port:", self.port_input)
+
+        relay_group = QGroupBox("UDP Relay")
+        relay_layout = QVBoxLayout(relay_group)
+        self.relay_enabled_checkbox = QCheckBox("Enable relay of telemetry UDP packets")
+        self.relay_enabled_checkbox.setChecked(False)
+        self.relay_enabled_checkbox.toggled.connect(self._on_relay_enabled_toggled)
+        relay_layout.addWidget(self.relay_enabled_checkbox)
+
+        relay_hint = QLabel("Relay targets (ip:port):")
+        relay_layout.addWidget(relay_hint)
+
+        self.relay_targets_list = QListWidget()
+        self.relay_targets_list.setMinimumHeight(100)
+        relay_layout.addWidget(self.relay_targets_list)
+
+        relay_buttons_row = QHBoxLayout()
+        self.relay_add_target_button = QPushButton("Add Target")
+        self.relay_add_target_button.clicked.connect(self._add_relay_target)
+        relay_buttons_row.addWidget(self.relay_add_target_button)
+        self.relay_remove_target_button = QPushButton("Remove Selected")
+        self.relay_remove_target_button.clicked.connect(
+            self._remove_selected_relay_target
+        )
+        relay_buttons_row.addWidget(self.relay_remove_target_button)
+        relay_buttons_row.addStretch(1)
+        relay_layout.addLayout(relay_buttons_row)
+        connection_form.addRow(relay_group)
 
         # ===== INPUT GROUP (in Options tab) =====
         input_group = QGroupBox("Input")
@@ -1047,6 +1162,8 @@ class MainWindow(QMainWindow):
         )
         audio_form.addRow(self.play_worker_chime_checkbox)
         options_layout.addWidget(audio_group)
+
+        self._set_relay_ui_enabled(False)
         options_layout.addStretch()
         tabs.addTab(options_widget, "Options")
 
@@ -1107,6 +1224,8 @@ class MainWindow(QMainWindow):
         bind_host = self.listen_address_input.text().strip()
         port = int(self.port_input.value())
         dry_run = self.dry_run_checkbox.isChecked()
+        relay_enabled = self.relay_enabled_checkbox.isChecked()
+        relay_targets = self._relay_targets_from_ui()
         require_focus_guard = self.focus_guard_checkbox.isChecked()
         shift_down_scan_code = self._shift_down_scan_code
         shift_up_scan_code = self._shift_up_scan_code
@@ -1119,6 +1238,8 @@ class MainWindow(QMainWindow):
             bind_host=bind_host,
             port=port,
             dry_run=dry_run,
+            relay_enabled=relay_enabled,
+            relay_targets=relay_targets,
             require_focus_guard=require_focus_guard,
             shift_down_scan_code=shift_down_scan_code,
             shift_up_scan_code=shift_up_scan_code,
@@ -1147,6 +1268,39 @@ class MainWindow(QMainWindow):
 
         thread.start()
         self._play_worker_chime("start")
+
+    def _relay_targets_from_ui(self) -> list[tuple[str, int]]:
+        targets: list[tuple[str, int]] = []
+        seen: set[tuple[str, int]] = set()
+        for i in range(self.relay_targets_list.count()):
+            item = self.relay_targets_list.item(i)
+            if item is None:
+                continue
+            parsed = self._parse_relay_target(item.text())
+            if parsed is None:
+                continue
+            if parsed in seen:
+                continue
+            seen.add(parsed)
+            targets.append(parsed)
+        return targets
+
+    @staticmethod
+    def _parse_relay_target(target: str) -> tuple[str, int] | None:
+        text = target.strip()
+        if not text or ":" not in text:
+            return None
+        host, port_text = text.rsplit(":", 1)
+        host = host.strip()
+        if not host:
+            return None
+        try:
+            port = int(port_text)
+        except ValueError:
+            return None
+        if port < 1 or port > 65535:
+            return None
+        return host, port
 
     def _build_at_config_from_editor(self) -> AutomaticTransmissionConfig:
         values = self._collect_full_tuning_values()
@@ -1242,6 +1396,9 @@ class MainWindow(QMainWindow):
         # Hotkey and log level
         self.log_level_input.setEnabled(enabled)
         self.record_hotkey_button.setEnabled(enabled)
+        relay_enabled = enabled and self.relay_enabled_checkbox.isChecked()
+        self.relay_enabled_checkbox.setEnabled(enabled)
+        self._set_relay_ui_enabled(relay_enabled)
 
     def _setup_chime_effects(self) -> None:
         if QSoundEffect is None:
@@ -1278,6 +1435,70 @@ class MainWindow(QMainWindow):
     @Slot(bool)
     def _on_play_worker_chime_toggled(self, checked: bool) -> None:
         self._play_worker_chime_enabled = bool(checked)
+        self._save_app_state()
+
+    def _set_relay_ui_enabled(self, enabled: bool) -> None:
+        self.relay_targets_list.setEnabled(enabled)
+        self.relay_add_target_button.setEnabled(enabled)
+        self.relay_remove_target_button.setEnabled(enabled)
+
+    @Slot(bool)
+    def _on_relay_enabled_toggled(self, checked: bool) -> None:
+        self._set_relay_ui_enabled(bool(checked))
+        self._save_app_state()
+
+    @Slot()
+    def _add_relay_target(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add Relay Target")
+        layout = QFormLayout(dialog)
+
+        ip_input = QLineEdit(dialog)
+        ip_input.setPlaceholderText("127.0.0.1")
+        layout.addRow("IP:", ip_input)
+
+        port_input = FocusWheelSpinBox(dialog)
+        port_input.setRange(1, 65535)
+        port_input.setValue(DEFAULT_TELEMETRY_PORT)
+        self._set_compact_numeric_input(port_input)
+        layout.addRow("Port:", port_input)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        ip = ip_input.text().strip()
+        if not ip:
+            return
+
+        target = f"{ip}:{int(port_input.value())}"
+        if ":" not in target:
+            QMessageBox.warning(
+                self,
+                "Invalid Target",
+                "Target must be in the form ip:port.",
+                QMessageBox.StandardButton.Ok,
+            )
+            return
+        if self.relay_targets_list.findItems(target, Qt.MatchFlag.MatchExactly):
+            return
+        self.relay_targets_list.addItem(target)
+        self._save_app_state()
+
+    @Slot()
+    def _remove_selected_relay_target(self) -> None:
+        current_item = self.relay_targets_list.currentItem()
+        if current_item is None:
+            return
+        row = self.relay_targets_list.row(current_item)
+        self.relay_targets_list.takeItem(row)
         self._save_app_state()
 
     def _set_tuning_fields_enabled(self, enabled: bool) -> None:
@@ -1652,11 +1873,19 @@ class MainWindow(QMainWindow):
                 "game": game_code,
                 "car_id": car_id,
             }
+        relay_targets = [
+            self.relay_targets_list.item(i).text().strip()
+            for i in range(self.relay_targets_list.count())
+            if self.relay_targets_list.item(i) is not None
+            and self.relay_targets_list.item(i).text().strip()
+        ]
         return {
-            "schema_version": 4,
+            "schema_version": 5,
             "listen_address": self.listen_address_input.text().strip(),
             "udp_port": int(self.port_input.value()),
             "dry_run": bool(self.dry_run_checkbox.isChecked()),
+            "relay_enabled": bool(self.relay_enabled_checkbox.isChecked()),
+            "relay_targets": relay_targets,
             "focus_guard": bool(self.focus_guard_checkbox.isChecked()),
             "play_worker_chime": bool(self.play_worker_chime_checkbox.isChecked()),
             "log_level": self.log_level_input.currentText(),
@@ -1674,14 +1903,36 @@ class MainWindow(QMainWindow):
 
     def _apply_app_state(self, state: dict[str, object]) -> None:
         schema_version = int(state["schema_version"])
-        if schema_version != 4:
+        if schema_version != 5:
             raise ValueError(
-                f"Unsupported app state schema_version={schema_version}; expected 4"
+                f"Unsupported app state schema_version={schema_version}; expected 5"
             )
 
         self.listen_address_input.setText(str(state["listen_address"]))
         self.port_input.setValue(int(state["udp_port"]))
         self.dry_run_checkbox.setChecked(bool(state["dry_run"]))
+        relay_enabled = state["relay_enabled"]
+        if not isinstance(relay_enabled, bool):
+            raise ValueError("Invalid app state: relay_enabled must be a bool")
+        relay_targets = state["relay_targets"]
+        if not isinstance(relay_targets, list):
+            raise ValueError("Invalid app state: relay_targets must be a list")
+        self.relay_targets_list.clear()
+        for raw_target in relay_targets:
+            if not isinstance(raw_target, str):
+                raise ValueError(
+                    "Invalid app state: relay_targets entries must be strings"
+                )
+            parsed = self._parse_relay_target(raw_target)
+            if parsed is None:
+                raise ValueError(
+                    f"Invalid app state: relay target '{raw_target}' is malformed"
+                )
+            self.relay_targets_list.addItem(f"{parsed[0]}:{parsed[1]}")
+        self.relay_enabled_checkbox.blockSignals(True)
+        self.relay_enabled_checkbox.setChecked(relay_enabled)
+        self.relay_enabled_checkbox.blockSignals(False)
+        self._set_relay_ui_enabled(relay_enabled)
         self.focus_guard_checkbox.setChecked(bool(state["focus_guard"]))
         play_worker_chime = state["play_worker_chime"]
         if not isinstance(play_worker_chime, bool):
@@ -1811,7 +2062,7 @@ class MainWindow(QMainWindow):
             self.append_log(f"[WARN] Ignoring incompatible app state: {exc}")
             self._save_app_state()
             self.append_log(
-                f"[INFO] Rewrote {self._state_file_path.name} to schema_version=4."
+                f"[INFO] Rewrote {self._state_file_path.name} to schema_version=5."
             )
 
     def _save_app_state(self) -> None:
