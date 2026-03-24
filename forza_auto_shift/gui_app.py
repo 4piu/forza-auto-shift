@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -774,8 +775,13 @@ class MainWindow(QMainWindow):
 
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setMaximumHeight(200)
+        self.log_view.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
         main_layout.addWidget(self.log_view)
+        main_layout.setStretch(0, 3)
+        main_layout.setStretch(3, 2)
 
         self.hotkey_pressed.connect(self._handle_hotkey_press)
         self.hotkey_released.connect(self._handle_hotkey_release)
