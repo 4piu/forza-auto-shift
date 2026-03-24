@@ -20,6 +20,7 @@ class ParsedAppState:
     relay_targets: list[str]
     focus_guard: bool
     play_worker_chime: bool
+    ui_language: str
     log_level: str
     shift_down_scan_code: int
     shift_up_scan_code: int
@@ -70,6 +71,7 @@ def build_app_state_payload(
     relay_targets: list[str],
     focus_guard: bool,
     play_worker_chime: bool,
+    ui_language: str,
     log_level: str,
     shift_down_scan_code: int,
     shift_up_scan_code: int,
@@ -111,6 +113,7 @@ def build_app_state_payload(
         "relay_targets": relay_targets,
         "focus_guard": focus_guard,
         "play_worker_chime": play_worker_chime,
+        "ui_language": ui_language,
         "log_level": log_level,
         "shift_down_scan_code": shift_down_scan_code,
         "shift_up_scan_code": shift_up_scan_code,
@@ -128,6 +131,7 @@ def build_app_state_payload(
 def parse_app_state_payload(
     *,
     state: Mapping[str, object],
+    valid_ui_languages: set[str],
     valid_log_levels: set[str],
     parse_relay_target: Callable[[str], tuple[str, int] | None],
     normalize_preset: Callable[[dict[str, object] | None], dict[str, object]],
@@ -167,6 +171,13 @@ def parse_app_state_payload(
     play_worker_chime = state["play_worker_chime"]
     if not isinstance(play_worker_chime, bool):
         raise ValueError("Invalid app state: play_worker_chime must be a bool")
+
+    ui_language_raw = state.get("ui_language", "auto")
+    if not isinstance(ui_language_raw, str):
+        raise ValueError("Invalid app state: ui_language must be a string")
+    ui_language = ui_language_raw.strip().lower() or "auto"
+    if ui_language not in valid_ui_languages:
+        raise ValueError(f"Unsupported ui_language '{ui_language}' in state")
 
     log_level = str(state["log_level"])
     if log_level not in valid_log_levels:
@@ -241,6 +252,7 @@ def parse_app_state_payload(
         relay_targets=relay_targets,
         focus_guard=focus_guard,
         play_worker_chime=play_worker_chime,
+        ui_language=ui_language,
         log_level=log_level,
         shift_down_scan_code=shift_down_scan_code,
         shift_up_scan_code=shift_up_scan_code,

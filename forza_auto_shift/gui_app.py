@@ -10,7 +10,17 @@ from pathlib import Path
 
 from pynput import keyboard
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot, QUrl
+from PySide6.QtCore import (
+    QCoreApplication,
+    QObject,
+    QLocale,
+    Qt,
+    QThread,
+    QTranslator,
+    Signal,
+    Slot,
+    QUrl,
+)
 from PySide6.QtGui import QIcon, QPalette
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -91,6 +101,9 @@ LOG_LEVEL_ORDER = {
 }
 MAPVK_VK_TO_VSC = 0
 DEFAULT_CAR_PRESET_NAME = "street"
+AUTO_LANGUAGE_CODE = "auto"
+SUPPORTED_UI_LANGUAGE_CODES = ("en", "es")
+UI_LANGUAGE_CODES = (AUTO_LANGUAGE_CODE, *SUPPORTED_UI_LANGUAGE_CODES)
 
 DEFAULT_AT_CONFIG_VALUES: dict[str, object] = {
     "upshift_rpm_low_throttle": 2800.0,
@@ -370,9 +383,57 @@ class MainWindow(QMainWindow):
         form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
         form.setHorizontalSpacing(10)
 
+    @staticmethod
+    def _normalize_ui_language_code(language_code: str) -> str:
+        code = language_code.strip().lower()
+        if not code:
+            return AUTO_LANGUAGE_CODE
+        if code in UI_LANGUAGE_CODES:
+            return code
+        return AUTO_LANGUAGE_CODE
+
+    def _load_initial_ui_language_preference(self) -> str:
+        if not self._state_file_path.exists():
+            return AUTO_LANGUAGE_CODE
+        try:
+            state = load_state_file(self._state_file_path)
+        except (OSError, json.JSONDecodeError, ValueError):
+            return AUTO_LANGUAGE_CODE
+        raw_code = state.get("ui_language", AUTO_LANGUAGE_CODE)
+        if not isinstance(raw_code, str):
+            return AUTO_LANGUAGE_CODE
+        return self._normalize_ui_language_code(raw_code)
+
+    def _t(self, key: str, default: str) -> str:
+        _ = key
+        translated = QCoreApplication.translate(self.__class__.__name__, key, default)
+        if translated == key:
+            return default
+        return translated
+
+    def _refresh_language_selector_labels(self) -> None:
+        self.ui_language_input.blockSignals(True)
+        self.ui_language_input.clear()
+        self.ui_language_input.addItem(
+            self._t("language.auto", "Auto (System)"),
+            AUTO_LANGUAGE_CODE,
+        )
+        self.ui_language_input.addItem(
+            self._t("language.en", "English"),
+            "en",
+        )
+        self.ui_language_input.addItem(
+            self._t("language.es", "Spanish"),
+            "es",
+        )
+        current_index = self.ui_language_input.findData(self._ui_language)
+        if current_index < 0:
+            current_index = 0
+        self.ui_language_input.setCurrentIndex(current_index)
+        self.ui_language_input.blockSignals(False)
+
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Forza Auto Shift")
         self.resize(1200, 700)
 
         self._thread: QThread | None = None
@@ -399,9 +460,12 @@ class MainWindow(QMainWindow):
         self._suppress_car_binding_updates = False
         self._suppress_preset_auto_apply = False
         self._state_file_path = Path.cwd() / APP_STATE_FILE_NAME
+        self._ui_language = self._load_initial_ui_language_preference()
         self._play_worker_chime_enabled = True
         self._chime_start_effect = None
         self._chime_stop_effect = None
+
+        self.setWindowTitle(self._t("app.window_title", "Forza Auto Shift"))
 
         root = QWidget(self)
         self.setCentralWidget(root)
@@ -411,26 +475,34 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
 
         # ===== CONNECTION GROUP (in Options tab) =====
-        connection_group = QGroupBox("Connection")
+        connection_group = QGroupBox(self._t("group.connection", "Connection"))
         connection_form = QFormLayout(connection_group)
         self._set_compact_form(connection_form)
         self.listen_address_input = QLineEdit("0.0.0.0")
         self.listen_address_input.setMaximumWidth(180)
-        connection_form.addRow("Listen address:", self.listen_address_input)
+        connection_form.addRow(
+            self._t("label.listen_address", "Listen address:"),
+            self.listen_address_input,
+        )
         self.port_input = FocusWheelSpinBox()
         self.port_input.setRange(1, 65535)
         self.port_input.setValue(DEFAULT_TELEMETRY_PORT)
         self._set_compact_numeric_input(self.port_input)
-        connection_form.addRow("UDP port:", self.port_input)
+        connection_form.addRow(self._t("label.udp_port", "UDP port:"), self.port_input)
 
-        relay_group = QGroupBox("UDP Relay")
+        relay_group = QGroupBox(self._t("group.udp_relay", "UDP Relay"))
         relay_layout = QVBoxLayout(relay_group)
-        self.relay_enabled_checkbox = QCheckBox("Enable relay of telemetry UDP packets")
+        self.relay_enabled_checkbox = QCheckBox(
+            self._t(
+                "checkbox.relay_enable",
+                "Enable relay of telemetry UDP packets",
+            )
+        )
         self.relay_enabled_checkbox.setChecked(False)
         self.relay_enabled_checkbox.toggled.connect(self._on_relay_enabled_toggled)
         relay_layout.addWidget(self.relay_enabled_checkbox)
 
-        relay_hint = QLabel("Relay targets (ip:port):")
+        relay_hint = QLabel(self._t("label.relay_targets", "Relay targets (ip:port):"))
         relay_layout.addWidget(relay_hint)
 
         self.relay_targets_list = QListWidget()
@@ -438,10 +510,14 @@ class MainWindow(QMainWindow):
         relay_layout.addWidget(self.relay_targets_list)
 
         relay_buttons_row = QHBoxLayout()
-        self.relay_add_target_button = QPushButton("Add Target")
+        self.relay_add_target_button = QPushButton(
+            self._t("button.add_target", "Add Target")
+        )
         self.relay_add_target_button.clicked.connect(self._add_relay_target)
         relay_buttons_row.addWidget(self.relay_add_target_button)
-        self.relay_remove_target_button = QPushButton("Remove Selected")
+        self.relay_remove_target_button = QPushButton(
+            self._t("button.remove_selected", "Remove Selected")
+        )
         self.relay_remove_target_button.clicked.connect(
             self._remove_selected_relay_target
         )
@@ -451,17 +527,23 @@ class MainWindow(QMainWindow):
         connection_form.addRow(relay_group)
 
         # ===== INPUT GROUP (in Options tab) =====
-        input_group = QGroupBox("Input")
+        input_group = QGroupBox(self._t("group.input", "Input"))
         input_form = QFormLayout(input_group)
         self._set_compact_form(input_form)
-        self.dry_run_checkbox = QCheckBox("Dry Run (no key press)")
+        self.dry_run_checkbox = QCheckBox(
+            self._t("checkbox.dry_run", "Dry Run (no key press)")
+        )
         self.dry_run_checkbox.setChecked(True)
         input_form.addRow(self.dry_run_checkbox)
-        self.focus_guard_checkbox = QCheckBox("Require Forza window focus")
+        self.focus_guard_checkbox = QCheckBox(
+            self._t("checkbox.require_focus", "Require Forza window focus")
+        )
         self.focus_guard_checkbox.setChecked(True)
         input_form.addRow(self.focus_guard_checkbox)
         shift_down_row = QHBoxLayout()
-        self.record_shift_down_button = QPushButton("Bind Down Key")
+        self.record_shift_down_button = QPushButton(
+            self._t("button.bind_down_key", "Bind Down Key")
+        )
         self.record_shift_down_button.setFixedWidth(130)
         self.record_shift_down_button.clicked.connect(
             self._start_shift_down_key_recording
@@ -471,9 +553,13 @@ class MainWindow(QMainWindow):
         shift_down_row.addWidget(self.shift_down_key_label)
         shift_down_row.addStretch(1)
         shift_down_row.addWidget(self.record_shift_down_button)
-        input_form.addRow("Shift down key:", shift_down_row)
+        input_form.addRow(
+            self._t("label.shift_down_key", "Shift down key:"), shift_down_row
+        )
         shift_up_row = QHBoxLayout()
-        self.record_shift_up_button = QPushButton("Bind Up Key")
+        self.record_shift_up_button = QPushButton(
+            self._t("button.bind_up_key", "Bind Up Key")
+        )
         self.record_shift_up_button.setFixedWidth(130)
         self.record_shift_up_button.clicked.connect(self._start_shift_up_key_recording)
         self.shift_up_key_label = QLabel(self._shift_up_key_name)
@@ -481,13 +567,13 @@ class MainWindow(QMainWindow):
         shift_up_row.addWidget(self.shift_up_key_label)
         shift_up_row.addStretch(1)
         shift_up_row.addWidget(self.record_shift_up_button)
-        input_form.addRow("Shift up key:", shift_up_row)
+        input_form.addRow(self._t("label.shift_up_key", "Shift up key:"), shift_up_row)
 
         # ===== TUNING TAB WITH PRESET EDITOR =====
         tuning_widget = QWidget()
         tuning_tab_layout = QHBoxLayout(tuning_widget)
 
-        preset_editor_group = QGroupBox("Preset Editor")
+        preset_editor_group = QGroupBox(self._t("group.preset_editor", "Preset Editor"))
         preset_editor_layout = QVBoxLayout(preset_editor_group)
         self.preset_list = QListWidget()
         self.preset_list.setMinimumWidth(220)
@@ -495,22 +581,24 @@ class MainWindow(QMainWindow):
         preset_editor_layout.addWidget(self.preset_list)
 
         preset_editor_actions_top = QHBoxLayout()
-        self.preset_create_button = QPushButton("Create")
+        self.preset_create_button = QPushButton(self._t("button.create", "Create"))
         self.preset_create_button.clicked.connect(self._save_current_as_preset)
         preset_editor_actions_top.addWidget(self.preset_create_button)
-        self.preset_duplicate_button = QPushButton("Duplicate")
+        self.preset_duplicate_button = QPushButton(
+            self._t("button.duplicate", "Duplicate")
+        )
         self.preset_duplicate_button.clicked.connect(self._duplicate_selected_preset)
         preset_editor_actions_top.addWidget(self.preset_duplicate_button)
         preset_editor_layout.addLayout(preset_editor_actions_top)
 
         preset_editor_actions_bottom = QHBoxLayout()
-        self.preset_rename_button = QPushButton("Rename")
+        self.preset_rename_button = QPushButton(self._t("button.rename", "Rename"))
         self.preset_rename_button.clicked.connect(self._rename_selected_preset)
         preset_editor_actions_bottom.addWidget(self.preset_rename_button)
-        self.preset_save_button = QPushButton("Save")
+        self.preset_save_button = QPushButton(self._t("button.save", "Save"))
         self.preset_save_button.clicked.connect(self._save_selected_preset)
         preset_editor_actions_bottom.addWidget(self.preset_save_button)
-        self.preset_delete_button = QPushButton("Delete")
+        self.preset_delete_button = QPushButton(self._t("button.delete", "Delete"))
         self.preset_delete_button.clicked.connect(self._delete_selected_preset)
         preset_editor_actions_bottom.addWidget(self.preset_delete_button)
         preset_editor_layout.addLayout(preset_editor_actions_bottom)
@@ -521,69 +609,104 @@ class MainWindow(QMainWindow):
         tuning_layout = QVBoxLayout(tuning_fields_widget)
 
         # RPM Maps group
-        rpm_group = CollapsibleBox("RPM Maps", collapsed=False)
+        rpm_group = CollapsibleBox(
+            self._t("tuning.group.rpm", "RPM Maps"), collapsed=False
+        )
         self._set_compact_form(rpm_group.content_layout)
         self.upshift_low_input = FocusWheelSpinBox()
         self.upshift_low_input.setRange(500, 12000)
         self.upshift_low_input.setValue(2800)
         self._set_compact_numeric_input(self.upshift_low_input)
-        rpm_group.addRow("Upshift RPM (low throttle):", self.upshift_low_input)
+        rpm_group.addRow(
+            self._t("tuning.upshift_low", "Upshift RPM (low throttle):"),
+            self.upshift_low_input,
+        )
         self.upshift_high_input = FocusWheelSpinBox()
         self.upshift_high_input.setRange(1000, 12000)
         self.upshift_high_input.setValue(7000)
         self._set_compact_numeric_input(self.upshift_high_input)
-        rpm_group.addRow("Upshift RPM (high throttle):", self.upshift_high_input)
+        rpm_group.addRow(
+            self._t("tuning.upshift_high", "Upshift RPM (high throttle):"),
+            self.upshift_high_input,
+        )
         self.downshift_low_input = FocusWheelSpinBox()
         self.downshift_low_input.setRange(500, 12000)
         self.downshift_low_input.setValue(1100)
         self._set_compact_numeric_input(self.downshift_low_input)
-        rpm_group.addRow("Downshift RPM (low throttle):", self.downshift_low_input)
+        rpm_group.addRow(
+            self._t("tuning.downshift_low", "Downshift RPM (low throttle):"),
+            self.downshift_low_input,
+        )
         self.downshift_high_input = FocusWheelSpinBox()
         self.downshift_high_input.setRange(500, 12000)
         self.downshift_high_input.setValue(3600)
         self._set_compact_numeric_input(self.downshift_high_input)
-        rpm_group.addRow("Downshift RPM (high throttle):", self.downshift_high_input)
+        rpm_group.addRow(
+            self._t("tuning.downshift_high", "Downshift RPM (high throttle):"),
+            self.downshift_high_input,
+        )
         tuning_layout.addWidget(rpm_group)
 
         # Cooldown & Basic Shift group
-        shift_group = CollapsibleBox("Shift Cooldown & Basic Behavior", collapsed=False)
+        shift_group = CollapsibleBox(
+            self._t("tuning.group.shift", "Shift Cooldown & Basic Behavior"),
+            collapsed=False,
+        )
         self._set_compact_form(shift_group.content_layout)
         self.cooldown_input = FocusWheelDoubleSpinBox()
         self.cooldown_input.setRange(0.05, 2.00)
         self.cooldown_input.setSingleStep(0.05)
         self.cooldown_input.setValue(0.35)
         self._set_compact_numeric_input(self.cooldown_input)
-        shift_group.addRow("Shift cooldown (s):", self.cooldown_input)
-        self.enable_dwell_checkbox = QCheckBox("Enable dwell")
+        shift_group.addRow(
+            self._t("tuning.shift_cooldown", "Shift cooldown (s):"),
+            self.cooldown_input,
+        )
+        self.enable_dwell_checkbox = QCheckBox(
+            self._t("tuning.enable_dwell", "Enable dwell")
+        )
         self.enable_dwell_checkbox.setChecked(False)
         shift_group.addRow(self.enable_dwell_checkbox)
         tuning_layout.addWidget(shift_group)
 
         # Dwell Timing group
-        dwell_group = CollapsibleBox("Dwell Timing", collapsed=True)
+        dwell_group = CollapsibleBox(
+            self._t("tuning.group.dwell", "Dwell Timing"), collapsed=True
+        )
         self._set_compact_form(dwell_group.content_layout)
         self.dwell_up_input = FocusWheelDoubleSpinBox()
         self.dwell_up_input.setRange(0.0, 2.0)
         self.dwell_up_input.setSingleStep(0.05)
         self.dwell_up_input.setValue(0.0)
         self._set_compact_numeric_input(self.dwell_up_input)
-        dwell_group.addRow("Dwell after upshift (s):", self.dwell_up_input)
+        dwell_group.addRow(
+            self._t("tuning.dwell_up", "Dwell after upshift (s):"),
+            self.dwell_up_input,
+        )
         self.dwell_down_input = FocusWheelDoubleSpinBox()
         self.dwell_down_input.setRange(0.0, 2.0)
         self.dwell_down_input.setSingleStep(0.05)
         self.dwell_down_input.setValue(0.0)
         self._set_compact_numeric_input(self.dwell_down_input)
-        dwell_group.addRow("Dwell after downshift (s):", self.dwell_down_input)
+        dwell_group.addRow(
+            self._t("tuning.dwell_down", "Dwell after downshift (s):"),
+            self.dwell_down_input,
+        )
         self.dwell_kickdown_input = FocusWheelDoubleSpinBox()
         self.dwell_kickdown_input.setRange(0.0, 2.0)
         self.dwell_kickdown_input.setSingleStep(0.05)
         self.dwell_kickdown_input.setValue(0.0)
         self._set_compact_numeric_input(self.dwell_kickdown_input)
-        dwell_group.addRow("Dwell after kickdown (s):", self.dwell_kickdown_input)
+        dwell_group.addRow(
+            self._t("tuning.dwell_kickdown", "Dwell after kickdown (s):"),
+            self.dwell_kickdown_input,
+        )
         tuning_layout.addWidget(dwell_group)
 
         # Kickdown Tuning group
-        kickdown_group = CollapsibleBox("Kickdown Tuning", collapsed=True)
+        kickdown_group = CollapsibleBox(
+            self._t("tuning.group.kickdown", "Kickdown Tuning"), collapsed=True
+        )
         self._set_compact_form(kickdown_group.content_layout)
         self.kickdown_threshold_input = FocusWheelDoubleSpinBox()
         self.kickdown_threshold_input.setRange(0.0, 1.0)
@@ -591,27 +714,40 @@ class MainWindow(QMainWindow):
         self.kickdown_threshold_input.setValue(0.88)
         self._set_compact_numeric_input(self.kickdown_threshold_input)
         kickdown_group.addRow(
-            "Kickdown throttle threshold:", self.kickdown_threshold_input
+            self._t("tuning.kickdown_threshold", "Kickdown throttle threshold:"),
+            self.kickdown_threshold_input,
         )
         self.kickdown_max_rpm_input = FocusWheelSpinBox()
         self.kickdown_max_rpm_input.setRange(500, 12000)
         self.kickdown_max_rpm_input.setValue(5200)
         self._set_compact_numeric_input(self.kickdown_max_rpm_input)
-        kickdown_group.addRow("Kickdown max RPM:", self.kickdown_max_rpm_input)
+        kickdown_group.addRow(
+            self._t("tuning.kickdown_max_rpm", "Kickdown max RPM:"),
+            self.kickdown_max_rpm_input,
+        )
         self.kickdown_lockout_input = FocusWheelDoubleSpinBox()
         self.kickdown_lockout_input.setRange(0.0, 3.0)
         self.kickdown_lockout_input.setSingleStep(0.05)
         self.kickdown_lockout_input.setValue(1.10)
         self._set_compact_numeric_input(self.kickdown_lockout_input)
         kickdown_group.addRow(
-            "Kickdown lockout after upshift (s):", self.kickdown_lockout_input
+            self._t(
+                "tuning.kickdown_lockout",
+                "Kickdown lockout after upshift (s):",
+            ),
+            self.kickdown_lockout_input,
         )
         tuning_layout.addWidget(kickdown_group)
 
         # Unload Guard group
-        unload_group = CollapsibleBox("Unload Upshift Guard", collapsed=True)
+        unload_group = CollapsibleBox(
+            self._t("tuning.group.unload", "Unload Upshift Guard"),
+            collapsed=True,
+        )
         self._set_compact_form(unload_group.content_layout)
-        self.enable_unload_guard_checkbox = QCheckBox("Enable unload upshift guard")
+        self.enable_unload_guard_checkbox = QCheckBox(
+            self._t("tuning.enable_unload_guard", "Enable unload upshift guard")
+        )
         self.enable_unload_guard_checkbox.setChecked(True)
         unload_group.addRow(self.enable_unload_guard_checkbox)
         self.unload_threshold_input = FocusWheelDoubleSpinBox()
@@ -619,14 +755,21 @@ class MainWindow(QMainWindow):
         self.unload_threshold_input.setSingleStep(0.01)
         self.unload_threshold_input.setValue(0.12)
         self._set_compact_numeric_input(self.unload_threshold_input)
-        unload_group.addRow("Unload suspension threshold:", self.unload_threshold_input)
+        unload_group.addRow(
+            self._t("tuning.unload_threshold", "Unload suspension threshold:"),
+            self.unload_threshold_input,
+        )
         self.unload_guard_duration_input = FocusWheelDoubleSpinBox()
         self.unload_guard_duration_input.setRange(0.0, 2.0)
         self.unload_guard_duration_input.setSingleStep(0.05)
         self.unload_guard_duration_input.setValue(0.35)
         self._set_compact_numeric_input(self.unload_guard_duration_input)
         unload_group.addRow(
-            "Unload guard lockout duration (s):", self.unload_guard_duration_input
+            self._t(
+                "tuning.unload_guard_duration",
+                "Unload guard lockout duration (s):",
+            ),
+            self.unload_guard_duration_input,
         )
         self.unload_min_throttle_input = FocusWheelDoubleSpinBox()
         self.unload_min_throttle_input.setRange(0.0, 1.0)
@@ -634,14 +777,19 @@ class MainWindow(QMainWindow):
         self.unload_min_throttle_input.setValue(0.45)
         self._set_compact_numeric_input(self.unload_min_throttle_input)
         unload_group.addRow(
-            "Unload guard min throttle:", self.unload_min_throttle_input
+            self._t("tuning.unload_min_throttle", "Unload guard min throttle:"),
+            self.unload_min_throttle_input,
         )
         tuning_layout.addWidget(unload_group)
 
         # Slip Guard group
-        slip_group = CollapsibleBox("Slip Upshift Guard", collapsed=True)
+        slip_group = CollapsibleBox(
+            self._t("tuning.group.slip", "Slip Upshift Guard"), collapsed=True
+        )
         self._set_compact_form(slip_group.content_layout)
-        self.enable_slip_guard_checkbox = QCheckBox("Enable slip upshift guard")
+        self.enable_slip_guard_checkbox = QCheckBox(
+            self._t("tuning.enable_slip_guard", "Enable slip upshift guard")
+        )
         self.enable_slip_guard_checkbox.setChecked(True)
         slip_group.addRow(self.enable_slip_guard_checkbox)
         self.slip_threshold_input = FocusWheelDoubleSpinBox()
@@ -649,21 +797,31 @@ class MainWindow(QMainWindow):
         self.slip_threshold_input.setSingleStep(0.01)
         self.slip_threshold_input.setValue(0.28)
         self._set_compact_numeric_input(self.slip_threshold_input)
-        slip_group.addRow("Slip ratio threshold:", self.slip_threshold_input)
+        slip_group.addRow(
+            self._t("tuning.slip_threshold", "Slip ratio threshold:"),
+            self.slip_threshold_input,
+        )
         self.slip_guard_duration_input = FocusWheelDoubleSpinBox()
         self.slip_guard_duration_input.setRange(0.0, 2.0)
         self.slip_guard_duration_input.setSingleStep(0.05)
         self.slip_guard_duration_input.setValue(0.30)
         self._set_compact_numeric_input(self.slip_guard_duration_input)
         slip_group.addRow(
-            "Slip guard lockout duration (s):", self.slip_guard_duration_input
+            self._t(
+                "tuning.slip_guard_duration",
+                "Slip guard lockout duration (s):",
+            ),
+            self.slip_guard_duration_input,
         )
         self.slip_min_throttle_input = FocusWheelDoubleSpinBox()
         self.slip_min_throttle_input.setRange(0.0, 1.0)
         self.slip_min_throttle_input.setSingleStep(0.01)
         self.slip_min_throttle_input.setValue(0.45)
         self._set_compact_numeric_input(self.slip_min_throttle_input)
-        slip_group.addRow("Slip guard min throttle:", self.slip_min_throttle_input)
+        slip_group.addRow(
+            self._t("tuning.slip_min_throttle", "Slip guard min throttle:"),
+            self.slip_min_throttle_input,
+        )
         tuning_layout.addWidget(slip_group)
 
         tuning_layout.addStretch()
@@ -671,12 +829,14 @@ class MainWindow(QMainWindow):
         tuning_scroll.setWidget(tuning_fields_widget)
         tuning_scroll.setWidgetResizable(True)
         tuning_tab_layout.addWidget(tuning_scroll, 1)
-        tabs.addTab(tuning_widget, "Tuning")
+        tabs.addTab(tuning_widget, self._t("tabs.tuning", "Tuning"))
 
         # ===== PRESETS TAB =====
         presets_widget = QWidget()
         presets_layout = QVBoxLayout(presets_widget)
-        presets_group = QGroupBox("Preset-Car Binding")
+        presets_group = QGroupBox(
+            self._t("group.preset_car_binding", "Preset-Car Binding")
+        )
         presets_form = QFormLayout(presets_group)
         self._set_compact_form(presets_form)
         self.binding_default_preset_combo = QComboBox()
@@ -684,13 +844,18 @@ class MainWindow(QMainWindow):
         self.binding_default_preset_combo.currentTextChanged.connect(
             self._on_binding_default_preset_changed
         )
-        presets_form.addRow("Default for new cars:", self.binding_default_preset_combo)
+        presets_form.addRow(
+            self._t("label.default_for_new_cars", "Default for new cars:"),
+            self.binding_default_preset_combo,
+        )
         presets_layout.addWidget(presets_group)
 
-        car_group = QGroupBox("Car Preset Assignments")
+        car_group = QGroupBox(
+            self._t("group.car_preset_assignments", "Car Preset Assignments")
+        )
         car_group_layout = QVBoxLayout(car_group)
         car_filter_row = QHBoxLayout()
-        car_filter_row.addWidget(QLabel("Filter:"))
+        car_filter_row.addWidget(QLabel(self._t("label.filter", "Filter:")))
         self.car_filter_combo = QComboBox()
         self.car_filter_combo.addItems(["All", "FH4", "FH5", "FM"])
         self.car_filter_combo.setCurrentText("All")
@@ -703,31 +868,49 @@ class MainWindow(QMainWindow):
         car_group_layout.addLayout(self.car_binding_rows_layout)
         presets_layout.addWidget(car_group)
         presets_layout.addStretch()
-        tabs.addTab(presets_widget, "Presets")
+        tabs.addTab(presets_widget, self._t("tabs.presets", "Presets"))
 
         # ===== OPTIONS TAB =====
         options_widget = QWidget()
         options_layout = QVBoxLayout(options_widget)
-        options_group = QGroupBox("General")
+        options_group = QGroupBox(self._t("group.general", "General"))
         options_form = QFormLayout(options_group)
         self._set_compact_form(options_form)
-        self.record_hotkey_button = QPushButton("Record Hotkey")
+        self.record_hotkey_button = QPushButton(
+            self._t("button.record_hotkey", "Record Hotkey")
+        )
         self.record_hotkey_button.clicked.connect(self._start_hotkey_recording)
-        options_form.addRow("Global hotkey:", self.record_hotkey_button)
+        options_form.addRow(
+            self._t("label.global_hotkey", "Global hotkey:"),
+            self.record_hotkey_button,
+        )
         self.log_level_input = QComboBox()
         self.log_level_input.addItems(["DEBUG", "INFO", "WARN", "ERROR"])
         self.log_level_input.setCurrentText("INFO")
         self.log_level_input.setMaximumWidth(110)
-        options_form.addRow("Log level:", self.log_level_input)
+        options_form.addRow(
+            self._t("label.log_level", "Log level:"), self.log_level_input
+        )
+        self.ui_language_input = QComboBox()
+        self.ui_language_input.setMaximumWidth(180)
+        self._refresh_language_selector_labels()
+        self.ui_language_input.currentIndexChanged.connect(self._on_ui_language_changed)
+        options_form.addRow(
+            self._t("label.ui_language", "UI language:"),
+            self.ui_language_input,
+        )
         options_layout.addWidget(connection_group)
         options_layout.addWidget(input_group)
         options_layout.addWidget(options_group)
 
-        audio_group = QGroupBox("Audio")
+        audio_group = QGroupBox(self._t("group.audio", "Audio"))
         audio_form = QFormLayout(audio_group)
         self._set_compact_form(audio_form)
         self.play_worker_chime_checkbox = QCheckBox(
-            "Play chime when worker starts/stops"
+            self._t(
+                "checkbox.play_worker_chime",
+                "Play chime when worker starts/stops",
+            )
         )
         self.play_worker_chime_checkbox.setChecked(self._play_worker_chime_enabled)
         self.play_worker_chime_checkbox.toggled.connect(
@@ -738,33 +921,38 @@ class MainWindow(QMainWindow):
 
         self._set_relay_ui_enabled(False)
         options_layout.addStretch()
-        tabs.addTab(options_widget, "Options")
+        tabs.addTab(options_widget, self._t("tabs.options", "Options"))
 
         self._settings_tabs = tabs
         main_layout.addWidget(tabs)
 
         # ===== CONTROLS BAR =====
         controls = QHBoxLayout()
-        self.clear_log_button = QPushButton("Clear Log")
+        self.clear_log_button = QPushButton(self._t("button.clear_log", "Clear Log"))
         self.clear_log_button.clicked.connect(self._clear_log)
         controls.addWidget(self.clear_log_button)
-        self.save_log_button = QPushButton("Save Log")
+        self.save_log_button = QPushButton(self._t("button.save_log", "Save Log"))
         self.save_log_button.clicked.connect(self._save_log_to_file)
         controls.addWidget(self.save_log_button)
         controls.addStretch(1)
-        self.hotkey_label = QLabel(f"Hotkey: {self._get_hotkey_name()}")
+        self.hotkey_label = QLabel(
+            f"{self._t('hotkey.prefix', 'Hotkey')}: {self._get_hotkey_name()}"
+        )
         controls.addWidget(self.hotkey_label)
-        self.start_button = QPushButton("Start")
+        self.start_button = QPushButton(self._t("button.start", "Start"))
         self.start_button.clicked.connect(self.start_worker)
         controls.addWidget(self.start_button)
-        self.stop_button = QPushButton("Stop")
+        self.stop_button = QPushButton(self._t("button.stop", "Stop"))
         self.stop_button.clicked.connect(self.stop_worker)
         self.stop_button.setEnabled(False)
         controls.addWidget(self.stop_button)
         main_layout.addLayout(controls)
 
         self.statusBar().showMessage(
-            "Status: Idle | Telemetry: Waiting | Focus: N/A | Game: Unknown | Latency: N/A"
+            self._t(
+                "status.idle",
+                "Status: Idle | Telemetry: Waiting | Focus: N/A | Game: Unknown | Latency: N/A",
+            )
         )
 
         # ===== LOG VIEW =====
@@ -970,9 +1158,12 @@ class MainWindow(QMainWindow):
             self._update_preset_delete_button_state()
         else:
             self.preset_delete_button.setEnabled(False)
-            self.preset_delete_button.setToolTip("Unavailable while running")
+            self.preset_delete_button.setToolTip(
+                self._t("tooltip.unavailable_running", "Unavailable while running")
+            )
         # Hotkey and log level
         self.log_level_input.setEnabled(enabled)
+        self.ui_language_input.setEnabled(enabled)
         self.record_hotkey_button.setEnabled(enabled)
         relay_enabled = enabled and self.relay_enabled_checkbox.isChecked()
         self.relay_enabled_checkbox.setEnabled(enabled)
@@ -1015,6 +1206,24 @@ class MainWindow(QMainWindow):
         self._play_worker_chime_enabled = bool(checked)
         self._save_app_state()
 
+    @Slot(int)
+    def _on_ui_language_changed(self, _index: int) -> None:
+        selected = self.ui_language_input.currentData()
+        if not isinstance(selected, str):
+            return
+        normalized = self._normalize_ui_language_code(selected)
+        if normalized == self._ui_language:
+            return
+        self._ui_language = normalized
+        self._refresh_language_selector_labels()
+        self.append_log(
+            self._t(
+                "log.language_changed_restart",
+                "[INFO] UI language updated. Restart the app to apply all text changes.",
+            )
+        )
+        self._save_app_state()
+
     def _set_relay_ui_enabled(self, enabled: bool) -> None:
         self.relay_targets_list.setEnabled(enabled)
         self.relay_add_target_button.setEnabled(enabled)
@@ -1028,18 +1237,20 @@ class MainWindow(QMainWindow):
     @Slot()
     def _add_relay_target(self) -> None:
         dialog = QDialog(self)
-        dialog.setWindowTitle("Add Relay Target")
+        dialog.setWindowTitle(
+            self._t("dialog.add_relay_target.title", "Add Relay Target")
+        )
         layout = QFormLayout(dialog)
 
         ip_input = QLineEdit(dialog)
         ip_input.setPlaceholderText("127.0.0.1")
-        layout.addRow("IP:", ip_input)
+        layout.addRow(self._t("dialog.add_relay_target.ip", "IP:"), ip_input)
 
         port_input = FocusWheelSpinBox(dialog)
         port_input.setRange(1, 65535)
         port_input.setValue(DEFAULT_TELEMETRY_PORT)
         self._set_compact_numeric_input(port_input)
-        layout.addRow("Port:", port_input)
+        layout.addRow(self._t("dialog.add_relay_target.port", "Port:"), port_input)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
@@ -1060,8 +1271,11 @@ class MainWindow(QMainWindow):
         if ":" not in target:
             QMessageBox.warning(
                 self,
-                "Invalid Target",
-                "Target must be in the form ip:port.",
+                self._t("dialog.invalid_target.title", "Invalid Target"),
+                self._t(
+                    "dialog.invalid_target.message",
+                    "Target must be in the form ip:port.",
+                ),
                 QMessageBox.StandardButton.Ok,
             )
             return
@@ -1127,9 +1341,12 @@ class MainWindow(QMainWindow):
         default_name = f"forza-auto-shift-log-{time.strftime('%Y%m%d-%H%M%S')}.txt"
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save Log",
+            self._t("dialog.save_log.title", "Save Log"),
             str(Path.cwd() / default_name),
-            "Text Files (*.txt);;All Files (*)",
+            self._t(
+                "dialog.save_log.filter",
+                "Text Files (*.txt);;All Files (*)",
+            ),
         )
         if not file_path:
             return
@@ -1142,7 +1359,7 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def set_status(self, status: str) -> None:
-        self.statusBar().showMessage(f"Status: {status}")
+        self.statusBar().showMessage(f"{self._t('status.prefix', 'Status')}: {status}")
 
     @Slot()
     def on_worker_finished(self) -> None:
@@ -1158,7 +1375,7 @@ class MainWindow(QMainWindow):
     def _get_hotkey_name(self) -> str:
         """Get a friendly name for the current hotkey combination (modifiers first)."""
         if self._current_hotkey is None or not self._current_hotkey:
-            return "Not set"
+            return self._t("hotkey.not_set", "Not set")
         try:
             modifiers = []
             regular_keys = []
@@ -1431,6 +1648,7 @@ class MainWindow(QMainWindow):
             relay_targets=relay_targets,
             focus_guard=bool(self.focus_guard_checkbox.isChecked()),
             play_worker_chime=bool(self.play_worker_chime_checkbox.isChecked()),
+            ui_language=self._ui_language,
             log_level=self.log_level_input.currentText(),
             shift_down_scan_code=int(self._shift_down_scan_code),
             shift_up_scan_code=int(self._shift_up_scan_code),
@@ -1450,6 +1668,7 @@ class MainWindow(QMainWindow):
     def _apply_app_state(self, state: dict[str, object]) -> None:
         parsed = parse_app_state_payload(
             state=state,
+            valid_ui_languages=set(UI_LANGUAGE_CODES),
             valid_log_levels=set(LOG_LEVEL_ORDER.keys()),
             parse_relay_target=self._parse_relay_target,
             normalize_preset=self._normalize_preset_values,
@@ -1471,6 +1690,8 @@ class MainWindow(QMainWindow):
         self.play_worker_chime_checkbox.blockSignals(True)
         self.play_worker_chime_checkbox.setChecked(parsed.play_worker_chime)
         self.play_worker_chime_checkbox.blockSignals(False)
+        self._ui_language = parsed.ui_language
+        self._refresh_language_selector_labels()
         self.log_level_input.setCurrentText(parsed.log_level)
 
         self._shift_down_scan_code = parsed.shift_down_scan_code
@@ -1491,7 +1712,9 @@ class MainWindow(QMainWindow):
         ]
         if filtered_keys:
             self._current_hotkey = frozenset(filtered_keys)
-        self.hotkey_label.setText(f"Hotkey: {self._get_hotkey_name()}")
+        self.hotkey_label.setText(
+            f"{self._t('hotkey.prefix', 'Hotkey')}: {self._get_hotkey_name()}"
+        )
 
         self._apply_tuning_values(parsed.current_tuning)
         self._preset_store = parsed.presets
@@ -1622,7 +1845,7 @@ class MainWindow(QMainWindow):
         self._clear_layout(self.car_binding_rows_layout)
 
         if not self._car_preset_map:
-            empty_label = QLabel("No cars detected yet.")
+            empty_label = QLabel(self._t("car.empty.none", "No cars detected yet."))
             empty_label.setStyleSheet("color: gray;")
             self.car_binding_rows_layout.addWidget(empty_label)
             self._suppress_car_binding_updates = False
@@ -1640,7 +1863,7 @@ class MainWindow(QMainWindow):
             self._car_preset_map[car_key] = preset_name
 
         if not rows:
-            empty_label = QLabel("No cars in this filter.")
+            empty_label = QLabel(self._t("car.empty.filter", "No cars in this filter."))
             empty_label.setStyleSheet("color: gray;")
             self.car_binding_rows_layout.addWidget(empty_label)
             self._suppress_car_binding_updates = False
@@ -1658,7 +1881,7 @@ class MainWindow(QMainWindow):
             car_label.setToolTip(f"{row.game_code}-{row.car_id}")
             row_layout.addWidget(car_label)
 
-            alias_button = QPushButton("Rename")
+            alias_button = QPushButton(self._t("button.rename", "Rename"))
             alias_button.setFixedWidth(80)
             alias_button.clicked.connect(
                 lambda _checked=False, car_key=row.car_key: self._rename_car_alias(
@@ -1681,7 +1904,7 @@ class MainWindow(QMainWindow):
             self._car_binding_preset_combos.append(preset_combo)
             row_layout.addWidget(preset_combo)
 
-            remove_button = QPushButton("Remove")
+            remove_button = QPushButton(self._t("button.delete", "Delete"))
             remove_button.setFixedWidth(80)
             remove_button.clicked.connect(
                 lambda _checked=False, car_key=row.car_key: self._remove_car_binding(
@@ -1767,8 +1990,11 @@ class MainWindow(QMainWindow):
         current_alias = self._car_alias_map.get(car_key, "")
         alias, ok = QInputDialog.getText(
             self,
-            "Set Car Alias",
-            f"Alias for {game_code}-{car_id} (empty resets):",
+            self._t("dialog.set_car_alias.title", "Set Car Alias"),
+            self._t(
+                "dialog.set_car_alias.prompt",
+                "Alias for {car} (empty resets):",
+            ).format(car=f"{game_code}-{car_id}"),
             text=current_alias,
         )
         if not ok:
@@ -1798,7 +2024,9 @@ class MainWindow(QMainWindow):
         name = self._active_preset_name.strip()
         if not self.preset_list.isEnabled():
             self.preset_delete_button.setEnabled(False)
-            self.preset_delete_button.setToolTip("Unavailable while running")
+            self.preset_delete_button.setToolTip(
+                self._t("tooltip.unavailable_running", "Unavailable while running")
+            )
             self.preset_rename_button.setEnabled(False)
             self.preset_duplicate_button.setEnabled(False)
             self.preset_save_button.setEnabled(False)
@@ -1806,7 +2034,12 @@ class MainWindow(QMainWindow):
             return
         if not name:
             self.preset_delete_button.setEnabled(False)
-            self.preset_delete_button.setToolTip("Select a preset in the editor list")
+            self.preset_delete_button.setToolTip(
+                self._t(
+                    "tooltip.select_preset_editor",
+                    "Select a preset in the editor list",
+                )
+            )
             self.preset_rename_button.setEnabled(False)
             self.preset_duplicate_button.setEnabled(False)
             self.preset_save_button.setEnabled(False)
@@ -1817,13 +2050,20 @@ class MainWindow(QMainWindow):
         self.preset_save_button.setEnabled(True)
         if name.lower() in BUILTIN_PRESET_TEMPLATES:
             self.preset_delete_button.setEnabled(False)
-            self.preset_delete_button.setToolTip("Built-in presets cannot be deleted")
+            self.preset_delete_button.setToolTip(
+                self._t(
+                    "tooltip.builtin_cannot_delete",
+                    "Built-in presets cannot be deleted",
+                )
+            )
             self.preset_rename_button.setEnabled(False)
             self.preset_save_button.setEnabled(False)
             self._set_tuning_fields_enabled(False)
             return
         self.preset_delete_button.setEnabled(True)
-        self.preset_delete_button.setToolTip("Delete selected custom preset")
+        self.preset_delete_button.setToolTip(
+            self._t("tooltip.delete_selected_custom", "Delete selected custom preset")
+        )
         self._set_tuning_fields_enabled(True)
 
     @Slot(str)
@@ -1861,8 +2101,8 @@ class MainWindow(QMainWindow):
         default_name = self._active_preset_name.strip() or "my-preset"
         name, ok = QInputDialog.getText(
             self,
-            "Create Preset",
-            "New preset name:",
+            self._t("dialog.create_preset.title", "Create Preset"),
+            self._t("dialog.create_preset.prompt", "New preset name:"),
             text=default_name,
         )
         if not ok:
@@ -1876,8 +2116,11 @@ class MainWindow(QMainWindow):
         if validation_error == "Preset name cannot be empty.":
             QMessageBox.warning(
                 self,
-                "Invalid Preset Name",
-                "Preset name cannot be empty.",
+                self._t("dialog.invalid_preset_name.title", "Invalid Preset Name"),
+                self._t(
+                    "dialog.invalid_preset_name.message",
+                    "Preset name cannot be empty.",
+                ),
                 QMessageBox.StandardButton.Ok,
             )
             self.append_log("[WARN] Preset name cannot be empty.")
@@ -1885,11 +2128,11 @@ class MainWindow(QMainWindow):
         if validation_error and "built-in preset" in validation_error.lower():
             QMessageBox.warning(
                 self,
-                "Built-in Preset",
-                (
-                    f"'{name}' is a built-in preset and cannot be overwritten.\n"
-                    "Please choose a different preset name."
-                ),
+                self._t("dialog.builtin_preset.title", "Built-in Preset"),
+                self._t(
+                    "dialog.builtin_preset.message",
+                    "'{name}' is a built-in preset and cannot be overwritten.\nPlease choose a different preset name.",
+                ).format(name=name),
                 QMessageBox.StandardButton.Ok,
             )
             self.append_log(
@@ -1899,8 +2142,11 @@ class MainWindow(QMainWindow):
         if validation_error and "already exists" in validation_error:
             answer = QMessageBox.question(
                 self,
-                "Preset Exists",
-                f"Preset '{name}' already exists. Choose another name.",
+                self._t("dialog.preset_exists.title", "Preset Exists"),
+                self._t(
+                    "dialog.preset_exists.message",
+                    "Preset '{name}' already exists. Choose another name.",
+                ).format(name=name),
                 QMessageBox.StandardButton.Ok,
             )
             if answer == QMessageBox.StandardButton.Ok:
@@ -1943,8 +2189,8 @@ class MainWindow(QMainWindow):
         suggested_name = f"{source_name}-copy"
         name, ok = QInputDialog.getText(
             self,
-            "Duplicate Preset",
-            "Duplicate preset name:",
+            self._t("dialog.duplicate_preset.title", "Duplicate Preset"),
+            self._t("dialog.duplicate_preset.prompt", "Duplicate preset name:"),
             text=suggested_name,
         )
         if not ok:
@@ -1977,8 +2223,8 @@ class MainWindow(QMainWindow):
             return
         new_name, ok = QInputDialog.getText(
             self,
-            "Rename Preset",
-            "New preset name:",
+            self._t("dialog.rename_preset.title", "Rename Preset"),
+            self._t("dialog.rename_preset.prompt", "New preset name:"),
             text=source_name,
         )
         if not ok:
@@ -2061,11 +2307,15 @@ class MainWindow(QMainWindow):
                 formatted_cars = format_car_keys(affected_cars)
                 answer = QMessageBox.question(
                     self,
-                    "Delete Preset",
-                    (
-                        f"Preset '{name}' is assigned to {len(affected_cars)} car(s): "
-                        f"{', '.join(sorted(formatted_cars))}.\n\n"
-                        f"If deleted, affected cars will be reassigned to '{default_preset}'. Continue?"
+                    self._t("dialog.delete_preset.title", "Delete Preset"),
+                    self._t(
+                        "dialog.delete_preset.message",
+                        "Preset '{name}' is assigned to {count} car(s): {cars}.\n\nIf deleted, affected cars will be reassigned to '{default_preset}'. Continue?",
+                    ).format(
+                        name=name,
+                        count=len(affected_cars),
+                        cars=", ".join(sorted(formatted_cars)),
+                        default_preset=default_preset,
                     ),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No,
@@ -2090,75 +2340,137 @@ class MainWindow(QMainWindow):
     def _set_tuning_tooltips(self) -> None:
         self._set_tooltip_with_label(
             self.upshift_low_input,
-            "Upshift RPM target at low throttle (gentle driving).",
+            self._t(
+                "tooltip.tuning.upshift_low",
+                "Upshift RPM target at low throttle (gentle driving).",
+            ),
         )
         self._set_tooltip_with_label(
             self.upshift_high_input,
-            "Upshift RPM target at high throttle (aggressive driving).",
+            self._t(
+                "tooltip.tuning.upshift_high",
+                "Upshift RPM target at high throttle (aggressive driving).",
+            ),
         )
         self._set_tooltip_with_label(
-            self.downshift_low_input, "Downshift RPM target at low throttle."
+            self.downshift_low_input,
+            self._t(
+                "tooltip.tuning.downshift_low",
+                "Downshift RPM target at low throttle.",
+            ),
         )
         self._set_tooltip_with_label(
             self.downshift_high_input,
-            "Downshift RPM target at high throttle or braking load.",
+            self._t(
+                "tooltip.tuning.downshift_high",
+                "Downshift RPM target at high throttle or braking load.",
+            ),
         )
         self._set_tooltip_with_label(
             self.cooldown_input,
-            "Minimum time between shifts to avoid rapid gear hunting.",
+            self._t(
+                "tooltip.tuning.cooldown",
+                "Minimum time between shifts to avoid rapid gear hunting.",
+            ),
         )
         self.enable_dwell_checkbox.setToolTip(
-            "Enable extra per-shift dwell hold times."
+            self._t(
+                "tooltip.tuning.enable_dwell",
+                "Enable extra per-shift dwell hold times.",
+            )
         )
         self._set_tooltip_with_label(
-            self.dwell_up_input, "Extra hold time after an upshift."
+            self.dwell_up_input,
+            self._t("tooltip.tuning.dwell_up", "Extra hold time after an upshift."),
         )
         self._set_tooltip_with_label(
-            self.dwell_down_input, "Extra hold time after a downshift."
+            self.dwell_down_input,
+            self._t(
+                "tooltip.tuning.dwell_down",
+                "Extra hold time after a downshift.",
+            ),
         )
         self._set_tooltip_with_label(
-            self.dwell_kickdown_input, "Extra hold time after a kickdown downshift."
+            self.dwell_kickdown_input,
+            self._t(
+                "tooltip.tuning.dwell_kickdown",
+                "Extra hold time after a kickdown downshift.",
+            ),
         )
         self._set_tooltip_with_label(
             self.kickdown_threshold_input,
-            "Throttle threshold to allow kickdown downshifts.",
+            self._t(
+                "tooltip.tuning.kickdown_threshold",
+                "Throttle threshold to allow kickdown downshifts.",
+            ),
         )
         self._set_tooltip_with_label(
-            self.kickdown_max_rpm_input, "Maximum RPM where kickdown is allowed."
+            self.kickdown_max_rpm_input,
+            self._t(
+                "tooltip.tuning.kickdown_max_rpm",
+                "Maximum RPM where kickdown is allowed.",
+            ),
         )
         self._set_tooltip_with_label(
             self.kickdown_lockout_input,
-            "Time to block kickdown immediately after upshift.",
+            self._t(
+                "tooltip.tuning.kickdown_lockout",
+                "Time to block kickdown immediately after upshift.",
+            ),
         )
         self.enable_unload_guard_checkbox.setToolTip(
-            "Blocks upshift briefly when suspension unload indicates airborne/crest."
+            self._t(
+                "tooltip.tuning.enable_unload_guard",
+                "Blocks upshift briefly when suspension unload indicates airborne/crest.",
+            )
         )
         self._set_tooltip_with_label(
             self.unload_threshold_input,
-            "Normalized suspension travel threshold for unload detection.",
+            self._t(
+                "tooltip.tuning.unload_threshold",
+                "Normalized suspension travel threshold for unload detection.",
+            ),
         )
         self._set_tooltip_with_label(
             self.unload_guard_duration_input,
-            "How long upshift stays blocked after unload is detected.",
+            self._t(
+                "tooltip.tuning.unload_guard_duration",
+                "How long upshift stays blocked after unload is detected.",
+            ),
         )
         self._set_tooltip_with_label(
             self.unload_min_throttle_input,
-            "Minimum throttle required before unload guard can trigger.",
+            self._t(
+                "tooltip.tuning.unload_min_throttle",
+                "Minimum throttle required before unload guard can trigger.",
+            ),
         )
         self.enable_slip_guard_checkbox.setToolTip(
-            "Blocks upshift briefly when driven tire slip is high."
+            self._t(
+                "tooltip.tuning.enable_slip_guard",
+                "Blocks upshift briefly when driven tire slip is high.",
+            )
         )
         self._set_tooltip_with_label(
             self.slip_threshold_input,
-            "Slip ratio threshold used to trigger slip upshift guard.",
+            self._t(
+                "tooltip.tuning.slip_threshold",
+                "Slip ratio threshold used to trigger slip upshift guard.",
+            ),
         )
         self._set_tooltip_with_label(
             self.slip_guard_duration_input,
-            "How long upshift stays blocked after slip trigger.",
+            self._t(
+                "tooltip.tuning.slip_guard_duration",
+                "How long upshift stays blocked after slip trigger.",
+            ),
         )
         self._set_tooltip_with_label(
             self.slip_min_throttle_input,
-            "Minimum throttle required before slip guard can trigger.",
+            self._t(
+                "tooltip.tuning.slip_min_throttle",
+                "Minimum throttle required before slip guard can trigger.",
+            ),
         )
 
     def _set_tooltip_with_label(self, field: QWidget, text: str) -> None:
@@ -2189,7 +2501,9 @@ class MainWindow(QMainWindow):
         self._hotkey_recording_pressed_keys.clear()
         self._hotkey_trigger_latched = False
         self._recording_hotkey = True
-        self.record_hotkey_button.setText("Recording... (ESC to cancel)")
+        self.record_hotkey_button.setText(
+            self._t("button.recording_hotkey", "Recording... (ESC to cancel)")
+        )
         self.record_hotkey_button.setEnabled(False)
         self.append_log(
             "Hotkey recording started. Press combo to set, or ESC to cancel."
@@ -2222,7 +2536,9 @@ class MainWindow(QMainWindow):
             return
         self._recording_hotkey = False
         self._hotkey_recording_pressed_keys.clear()
-        self.record_hotkey_button.setText("Record Hotkey")
+        self.record_hotkey_button.setText(
+            self._t("button.record_hotkey", "Record Hotkey")
+        )
         self.record_hotkey_button.setEnabled(True)
         self.append_log("Hotkey recording canceled.")
 
@@ -2330,9 +2646,13 @@ class MainWindow(QMainWindow):
                 self._current_hotkey = frozenset(self._hotkey_recording_pressed_keys)
                 self._recording_hotkey = False
                 self._hotkey_recording_pressed_keys.clear()
-                self.record_hotkey_button.setText("Record Hotkey")
+                self.record_hotkey_button.setText(
+                    self._t("button.record_hotkey", "Record Hotkey")
+                )
                 self.record_hotkey_button.setEnabled(True)
-                self.hotkey_label.setText(f"Hotkey: {self._get_hotkey_name()}")
+                self.hotkey_label.setText(
+                    f"{self._t('hotkey.prefix', 'Hotkey')}: {self._get_hotkey_name()}"
+                )
                 self.append_log(f"Hotkey set to {self._get_hotkey_name()}")
             return
 
@@ -2404,6 +2724,52 @@ class MainWindow(QMainWindow):
 
 
 def run_gui() -> int:
+    def _normalize_ui_language_code(language_code: str) -> str:
+        code = language_code.strip().lower()
+        if not code:
+            return AUTO_LANGUAGE_CODE
+        if code in UI_LANGUAGE_CODES:
+            return code
+        return AUTO_LANGUAGE_CODE
+
+    def _resolve_effective_ui_language(selected_language: str) -> str:
+        selected = _normalize_ui_language_code(selected_language)
+        if selected != AUTO_LANGUAGE_CODE:
+            return selected
+        system_name = QLocale.system().name().strip().lower().replace("-", "_")
+        base = system_name.split("_", 1)[0] if system_name else ""
+        if base in SUPPORTED_UI_LANGUAGE_CODES:
+            return base
+        return "en"
+
+    def _load_selected_ui_language_from_state() -> str:
+        state_path = Path.cwd() / APP_STATE_FILE_NAME
+        if not state_path.exists():
+            return AUTO_LANGUAGE_CODE
+        try:
+            state = load_state_file(state_path)
+        except (OSError, json.JSONDecodeError, ValueError):
+            return AUTO_LANGUAGE_CODE
+        raw = state.get("ui_language", AUTO_LANGUAGE_CODE)
+        if not isinstance(raw, str):
+            return AUTO_LANGUAGE_CODE
+        return _normalize_ui_language_code(raw)
+
+    def _install_ui_translator(app: QApplication, selected_language: str) -> None:
+        effective_language = _resolve_effective_ui_language(selected_language)
+        if effective_language == "en":
+            return
+        qm_dir = Path(__file__).resolve().parent / "i18n"
+        qm_path = qm_dir / f"forza_auto_shift_{effective_language}.qm"
+        if not qm_path.exists():
+            return
+        translator = QTranslator(app)
+        if not translator.load(str(qm_path.resolve())):
+            return
+        app.installTranslator(translator)
+        # Keep a strong reference so translator is not garbage collected.
+        setattr(app, "_ui_translator", translator)
+
     def _resolve_app_icon_path(app: QApplication) -> Path | None:
         assets_dir = Path(__file__).resolve().parent / "assets"
         light_icon = assets_dir / "icon_light.png"
@@ -2421,6 +2787,7 @@ def run_gui() -> int:
         return None
 
     app = QApplication(sys.argv)
+    _install_ui_translator(app, _load_selected_ui_language_from_state())
     icon_path = _resolve_app_icon_path(app)
     app_icon: QIcon | None = None
     if icon_path is not None:
