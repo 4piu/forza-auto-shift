@@ -11,6 +11,7 @@ from pathlib import Path
 from pynput import keyboard
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot, QUrl
+from PySide6.QtGui import QIcon, QPalette
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -2397,8 +2398,32 @@ class MainWindow(QMainWindow):
 
 
 def run_gui() -> int:
+    def _resolve_app_icon_path(app: QApplication) -> Path | None:
+        assets_dir = Path(__file__).resolve().parent / "assets"
+        light_icon = assets_dir / "icon_light.png"
+        dark_icon = assets_dir / "icon_dark.png"
+
+        # Use dark icon on light themes and light icon on dark themes.
+        window_lightness = app.palette().color(QPalette.ColorRole.Window).lightness()
+        preferred = dark_icon if window_lightness >= 128 else light_icon
+        fallback = light_icon if preferred == dark_icon else dark_icon
+
+        if preferred.exists():
+            return preferred
+        if fallback.exists():
+            return fallback
+        return None
+
     app = QApplication(sys.argv)
+    icon_path = _resolve_app_icon_path(app)
+    app_icon: QIcon | None = None
+    if icon_path is not None:
+        app_icon = QIcon(str(icon_path))
+        app.setWindowIcon(app_icon)
+
     window = MainWindow()
+    if app_icon is not None:
+        window.setWindowIcon(app_icon)
     window.show()
     return app.exec()
 
