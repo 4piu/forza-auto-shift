@@ -1,12 +1,12 @@
 <?xml version='1.0' encoding='utf-8'?>
-<TS version="2.1" language="es_ES">
+<TS version="2.1" language="zh_TW">
     <context>
         <name>MainWindow</name>
         <message>
             <location filename="../gui_app.py" line="418" />
             <source>language.auto</source>
             <comment>Auto (System)</comment>
-            <translation>Auto (Sistema)</translation>
+            <translation>自動（系統）</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="422" />
@@ -54,345 +54,341 @@
             <location filename="../gui_app.py" line="488" />
             <source>app.window_title</source>
             <comment>Forza Auto Shift</comment>
-            <translation>Forza Auto Shift</translation>
+            <translation>極限競速自排換檔</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="498" />
             <source>group.connection</source>
             <comment>Connection</comment>
-            <translation>Conexion</translation>
+            <translation>連線</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="504" />
             <source>label.listen_address</source>
             <comment>Listen address:</comment>
-            <translation>Direccion de escucha:</translation>
+            <translation>監聽位址:</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="511" />
             <source>label.udp_port</source>
             <comment>UDP port:</comment>
-            <translation>Puerto UDP:</translation>
+            <translation>UDP連接埠：</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="513" />
             <source>group.udp_relay</source>
             <comment>UDP Relay</comment>
-            <translation>Reenvio UDP</translation>
+            <translation>UDP中繼</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="517" />
             <source>checkbox.relay_enable</source>
             <comment>Enable relay of telemetry UDP packets</comment>
             <translation>
-                <numerusform>Habilitar reenvio de paquetes UDP de telemetria</numerusform>
-                <numerusform>Habilitar reenvio de paquetes UDP de telemetria</numerusform>
+                <numerusform>啟用遙測 UDP 封包的中繼</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="525" />
             <source>label.relay_targets</source>
             <comment>Relay targets (ip:port):</comment>
-            <translation>Destinos de reenvio (ip:port):</translation>
+            <translation>轉發目標 (ip:port):</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="534" />
             <source>button.add_target</source>
             <comment>Add Target</comment>
-            <translation>Agregar destino</translation>
+            <translation>新增目標</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="539" />
             <source>button.remove_selected</source>
             <comment>Remove Selected</comment>
-            <translation>Quitar seleccionado</translation>
+            <translation>移除所選</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="550" />
             <source>group.input</source>
             <comment>Input</comment>
-            <translation>Entrada</translation>
+            <translation>輸入</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="554" />
             <source>checkbox.dry_run</source>
             <comment>Dry Run (no key press)</comment>
-            <translation>Simulacion (sin pulsar teclas)</translation>
+            <translation>空跑（不按鍵）</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="559" />
             <source>checkbox.require_focus</source>
             <comment>Require Forza window focus</comment>
-            <translation>Requerir foco de ventana Forza</translation>
+            <translation>需要 Forza 視窗焦點</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="565" />
             <source>button.bind_down_key</source>
             <comment>Bind Down Key</comment>
-            <translation>Asignar bajar</translation>
+            <translation>綁定降檔鍵</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="577" />
             <source>label.shift_down_key</source>
             <comment>Shift down key:</comment>
-            <translation>Tecla bajar marcha:</translation>
+            <translation>降檔鍵:</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="581" />
             <source>button.bind_up_key</source>
             <comment>Bind Up Key</comment>
-            <translation>Asignar subir</translation>
+            <translation>綁定升檔鍵</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="590" />
             <source>label.shift_up_key</source>
             <comment>Shift up key:</comment>
-            <translation>Tecla subir marcha:</translation>
+            <translation>升檔鍵:</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="596" />
             <source>group.preset_editor</source>
             <comment>Preset Editor</comment>
-            <translation>Editor de Presets</translation>
+            <translation>預設編輯器</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="604" />
             <source>button.create</source>
             <comment>Create</comment>
-            <translation>Crear</translation>
+            <translation>建立</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="608" />
             <source>button.duplicate</source>
             <comment>Duplicate</comment>
-            <translation>Duplicar</translation>
+            <translation>複製</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="615" />
             <location filename="../gui_app.py" line="1904" />
             <source>button.rename</source>
             <comment>Rename</comment>
-            <translation>Renombrar</translation>
+            <translation>重新命名</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="618" />
             <source>button.save</source>
             <comment>Save</comment>
-            <translation>Guardar</translation>
+            <translation>儲存</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="621" />
             <location filename="../gui_app.py" line="1927" />
             <source>button.delete</source>
             <comment>Delete</comment>
-            <translation>Eliminar</translation>
+            <translation>刪除</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="633" />
             <source>tuning.group.rpm</source>
             <comment>RPM Maps</comment>
-            <translation>Mapas RPM</translation>
+            <translation>轉速圖</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="641" />
             <source>tuning.upshift_low</source>
             <comment>Upshift RPM (low throttle):</comment>
-            <translation>RPM de upshift (acelerador bajo):</translation>
+            <translation>升檔轉速（低油門）：</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="649" />
             <source>tuning.upshift_high</source>
             <comment>Upshift RPM (high throttle):</comment>
-            <translation>RPM de upshift (acelerador alto):</translation>
+            <translation>升檔轉速（高油門）：</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="657" />
             <source>tuning.downshift_low</source>
             <comment>Downshift RPM (low throttle):</comment>
-            <translation>RPM de downshift (acelerador bajo):</translation>
+            <translation>降檔轉速（低油門）：</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="665" />
             <source>tuning.downshift_high</source>
             <comment>Downshift RPM (high throttle):</comment>
-            <translation>RPM de downshift (acelerador alto):</translation>
+            <translation>降檔轉速（高油門）：</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="672" />
             <source>tuning.group.shift</source>
             <comment>Shift Cooldown &amp; Basic Behavior</comment>
-            <translation>Enfriamiento y Comportamiento Basico</translation>
+            <translation>換檔冷卻與基本行為</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="682" />
             <source>tuning.shift_cooldown</source>
             <comment>Shift cooldown (s):</comment>
-            <translation>Enfriamiento de cambio (s):</translation>
+            <translation>換檔冷卻 (秒):</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="686" />
             <source>tuning.enable_dwell</source>
             <comment>Enable dwell</comment>
-            <translation>Habilitar dwell</translation>
+            <translation>啟用停留時間</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="694" />
             <source>tuning.group.dwell</source>
             <comment>Dwell Timing</comment>
-            <translation>Tiempos de Dwell</translation>
+            <translation>停留時間</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="703" />
             <source>tuning.dwell_up</source>
             <comment>Dwell after upshift (s):</comment>
-            <translation>Dwell despues de upshift (s):</translation>
+            <translation>升檔後停留 (秒):</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="712" />
             <source>tuning.dwell_down</source>
             <comment>Dwell after downshift (s):</comment>
-            <translation>Dwell despues de downshift (s):</translation>
+            <translation>降檔後停留 (秒):</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="721" />
             <source>tuning.dwell_kickdown</source>
             <comment>Dwell after kickdown (s):</comment>
-            <translation>Dwell despues de kickdown (s):</translation>
+            <translation>Kickdown 後停留 (秒):</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="728" />
             <source>tuning.group.kickdown</source>
             <comment>Kickdown Tuning</comment>
-            <translation>Ajuste de Kickdown</translation>
+            <translation>Kickdown 調校</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="737" />
             <source>tuning.kickdown_threshold</source>
             <comment>Kickdown throttle threshold:</comment>
-            <translation>Umbral de acelerador para kickdown:</translation>
+            <translation>Kickdown 油門門檻:</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="745" />
             <source>tuning.kickdown_max_rpm</source>
             <comment>Kickdown max RPM:</comment>
-            <translation>RPM maxima de kickdown:</translation>
+            <translation>Kickdown 最大 RPM:</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="755" />
             <source>tuning.kickdown_lockout</source>
             <comment>Kickdown lockout after upshift (s):</comment>
             <translation>
-                <numerusform>Bloqueo de kickdown tras upshift (s):</numerusform>
-                <numerusform>Bloqueo de kickdown tras upshift (s):</numerusform>
+                <numerusform>升檔後 Kickdown 鎖定 (秒):</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="764" />
             <source>tuning.group.unload</source>
             <comment>Unload Upshift Guard</comment>
-            <translation>Proteccion de Upshift por Descarga</translation>
+            <translation>失載升檔保護</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="769" />
             <source>tuning.enable_unload_guard</source>
             <comment>Enable unload upshift guard</comment>
-            <translation>Habilitar proteccion de upshift por descarga</translation>
+            <translation>啟用失載升檔保護</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="779" />
             <source>tuning.unload_threshold</source>
             <comment>Unload suspension threshold:</comment>
-            <translation>Umbral de suspension descargada:</translation>
+            <translation>懸吊失載門檻:</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="789" />
             <source>tuning.unload_guard_duration</source>
             <comment>Unload guard lockout duration (s):</comment>
             <translation>
-                <numerusform>Duracion de bloqueo por descarga (s):</numerusform>
-                <numerusform>Duracion de bloqueo por descarga (s):</numerusform>
+                <numerusform>失載保護鎖定時長 (秒):</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="800" />
             <source>tuning.unload_min_throttle</source>
             <comment>Unload guard min throttle:</comment>
-            <translation>Acelerador minimo para descarga:</translation>
+            <translation>失載保護最小油門:</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="807" />
             <source>tuning.group.slip</source>
             <comment>Slip Upshift Guard</comment>
-            <translation>Proteccion de Upshift por Deslizamiento</translation>
+            <translation>打滑升檔保護</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="811" />
             <source>tuning.enable_slip_guard</source>
             <comment>Enable slip upshift guard</comment>
-            <translation>Habilitar proteccion por deslizamiento</translation>
+            <translation>啟用打滑升檔保護</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="821" />
             <source>tuning.slip_threshold</source>
             <comment>Slip ratio threshold:</comment>
-            <translation>Umbral de relacion de deslizamiento:</translation>
+            <translation>打滑率門檻:</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="831" />
             <source>tuning.slip_guard_duration</source>
             <comment>Slip guard lockout duration (s):</comment>
             <translation>
-                <numerusform>Duracion de bloqueo por deslizamiento (s):</numerusform>
-                <numerusform>Duracion de bloqueo por deslizamiento (s):</numerusform>
+                <numerusform>打滑保護鎖定時長 (秒):</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="842" />
             <source>tuning.slip_min_throttle</source>
             <comment>Slip guard min throttle:</comment>
-            <translation>Acelerador minimo para deslizamiento:</translation>
+            <translation>打滑保護最小油門:</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="852" />
             <source>tabs.tuning</source>
             <comment>Tuning</comment>
-            <translation>Ajustes</translation>
+            <translation>調校</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="858" />
             <source>group.preset_car_binding</source>
             <comment>Preset-Car Binding</comment>
-            <translation>Vinculacion Preset-Coche</translation>
+            <translation>預設-車輛綁定</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="868" />
             <source>label.default_for_new_cars</source>
             <comment>Default for new cars:</comment>
-            <translation>Predeterminado para coches nuevos:</translation>
+            <translation>新車預設：</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="874" />
             <source>group.car_preset_assignments</source>
             <comment>Car Preset Assignments</comment>
-            <translation>Asignaciones de Preset por Coche</translation>
+            <translation>車輛預設指派</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="878" />
             <source>label.filter</source>
             <comment>Filter:</comment>
-            <translation>Filtro:</translation>
+            <translation>篩選：</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="891" />
             <source>tabs.presets</source>
             <comment>Presets</comment>
-            <translation>Presets</translation>
+            <translation>預設</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="896" />
             <source>group.general</source>
             <comment>General</comment>
-            <translation>General</translation>
+            <translation>一般</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="900" />
@@ -400,78 +396,76 @@
             <location filename="../gui_app.py" line="2670" />
             <source>button.record_hotkey</source>
             <comment>Record Hotkey</comment>
-            <translation>Grabar atajo</translation>
+            <translation>錄製熱鍵</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="904" />
             <source>label.global_hotkey</source>
             <comment>Global hotkey:</comment>
-            <translation>Atajo global:</translation>
+            <translation>全局熱鍵：</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="912" />
             <source>label.log_level</source>
             <comment>Log level:</comment>
-            <translation>Nivel de log:</translation>
+            <translation>日誌等級：</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="919" />
             <source>label.ui_language</source>
             <comment>UI language:</comment>
-            <translation>Idioma UI:</translation>
+            <translation>介面語言:</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="926" />
             <source>group.audio</source>
             <comment>Audio</comment>
-            <translation>Audio</translation>
+            <translation>音訊</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="931" />
             <source>checkbox.play_worker_chime</source>
             <comment>Play chime when worker starts/stops</comment>
             <translation>
-                <numerusform>Reproducir sonido al iniciar/detener worker</numerusform>
-                <numerusform>Reproducir sonido al iniciar/detener worker</numerusform>
+                <numerusform>工作執行緒啟動/停止時播放提示音</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="944" />
             <source>tabs.options</source>
             <comment>Options</comment>
-            <translation>Opciones</translation>
+            <translation>選項</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="951" />
             <source>button.clear_log</source>
             <comment>Clear Log</comment>
-            <translation>Limpiar log</translation>
+            <translation>清除日誌</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="954" />
             <source>button.save_log</source>
             <comment>Save Log</comment>
-            <translation>Guardar log</translation>
+            <translation>保存日誌</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="962" />
             <source>button.start</source>
             <comment>Start</comment>
-            <translation>Iniciar</translation>
+            <translation>啟動</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="965" />
             <source>button.stop</source>
             <comment>Stop</comment>
-            <translation>Detener</translation>
+            <translation>停止</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="973" />
             <source>status.idle</source>
             <comment>Status: Idle | Telemetry: Waiting | Focus: N/A | Game: Unknown | Latency: N/A</comment>
             <translation>
-                <numerusform>Estado: Inactivo | Telemetria: Esperando | Foco: N/A | Juego: Desconocido | Latencia: N/A</numerusform>
-                <numerusform>Estado: Inactivo | Telemetria: Esperando | Foco: N/A | Juego: Desconocido | Latencia: N/A</numerusform>
+                <numerusform>狀態: 閒置 | 遙測: 等待中 | 焦點: N/A | 遊戲: 未知 | 延遲: N/A</numerusform>
             </translation>
         </message>
         <message>
@@ -479,22 +473,21 @@
             <location filename="../gui_app.py" line="2048" />
             <source>tooltip.unavailable_running</source>
             <comment>Unavailable while running</comment>
-            <translation>No disponible mientras se ejecuta</translation>
+            <translation>運行時不可用</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="1241" />
             <source>log.language_changed_restart</source>
             <comment>[INFO] UI language updated. Restart the app to apply all text changes.</comment>
             <translation>
-                <numerusform>[INFO] Idioma de UI actualizado. Reinicia la app para aplicar todos los cambios de texto.</numerusform>
-                <numerusform>[INFO] Idioma de UI actualizado. Reinicia la app para aplicar todos los cambios de texto.</numerusform>
+                <numerusform>[資訊] UI 語言已更新。重新啟動應用程式以應用所有文字變更。</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="1261" />
             <source>dialog.add_relay_target.title</source>
             <comment>Add Relay Target</comment>
-            <translation>Agregar destino de reenvio</translation>
+            <translation>新增中繼目標</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="1267" />
@@ -506,69 +499,66 @@
             <location filename="../gui_app.py" line="1273" />
             <source>dialog.add_relay_target.port</source>
             <comment>Port:</comment>
-            <translation>Puerto:</translation>
+            <translation>埠:</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="1294" />
             <source>dialog.invalid_target.title</source>
             <comment>Invalid Target</comment>
-            <translation>Destino invalido</translation>
+            <translation>目標無效</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="1296" />
             <source>dialog.invalid_target.message</source>
             <comment>Target must be in the form ip:port.</comment>
             <translation>
-                <numerusform>El destino debe tener formato ip:port.</numerusform>
-                <numerusform>El destino debe tener formato ip:port.</numerusform>
+                <numerusform>目標必須採用 ip:port 形式。</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="1364" />
             <source>dialog.save_log.title</source>
             <comment>Save Log</comment>
-            <translation>Guardar log</translation>
+            <translation>保存日誌</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="1367" />
             <source>dialog.save_log.filter</source>
             <comment>Text Files (*.txt);;All Files (*)</comment>
             <translation>
-                <numerusform>Archivos de texto (*.txt);;Todos los archivos (*)</numerusform>
-                <numerusform>Archivos de texto (*.txt);;Todos los archivos (*)</numerusform>
+                <numerusform>文字檔 (*.txt);;所有檔案 (*)</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="1398" />
             <source>hotkey.not_set</source>
             <comment>Not set</comment>
-            <translation>Sin configurar</translation>
+            <translation>未設定</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="1868" />
             <source>car.empty.none</source>
             <comment>No cars detected yet.</comment>
-            <translation>Aun no se detectaron coches.</translation>
+            <translation>尚未偵測到汽車。</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="1886" />
             <source>car.empty.filter</source>
             <comment>No cars in this filter.</comment>
-            <translation>No hay coches en este filtro.</translation>
+            <translation>此過濾器中沒有汽車。</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2013" />
             <source>dialog.set_car_alias.title</source>
             <comment>Set Car Alias</comment>
-            <translation>Alias del coche</translation>
+            <translation>設定車輛別名</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="2015" />
             <source>dialog.set_car_alias.prompt</source>
             <comment>Alias for {car} (empty resets):</comment>
             <translation>
-                <numerusform>Alias para {car} (vacio reinicia):</numerusform>
-                <numerusform>Alias para {car} (vacio reinicia):</numerusform>
+                <numerusform>{car} 的別名（留空重設）:</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -576,8 +566,7 @@
             <source>tooltip.select_preset_editor</source>
             <comment>Select a preset in the editor list</comment>
             <translation>
-                <numerusform>Selecciona un preset en el editor</numerusform>
-                <numerusform>Selecciona un preset en el editor</numerusform>
+                <numerusform>在編輯器清單中選擇預設</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -585,48 +574,46 @@
             <source>tooltip.builtin_cannot_delete</source>
             <comment>Built-in presets cannot be deleted</comment>
             <translation>
-                <numerusform>Los presets integrados no se pueden eliminar</numerusform>
-                <numerusform>Los presets integrados no se pueden eliminar</numerusform>
+                <numerusform>內建預設無法刪除</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2085" />
             <source>tooltip.delete_selected_custom</source>
             <comment>Delete selected custom preset</comment>
-            <translation>Eliminar preset personalizado seleccionado</translation>
+            <translation>刪除選定的自訂預設</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2124" />
             <source>dialog.create_preset.title</source>
             <comment>Create Preset</comment>
-            <translation>Crear Preset</translation>
+            <translation>建立預設</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2125" />
             <source>dialog.create_preset.prompt</source>
             <comment>New preset name:</comment>
-            <translation>Nombre del nuevo preset:</translation>
+            <translation>新預設名稱:</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2139" />
             <source>dialog.invalid_preset_name.title</source>
             <comment>Invalid Preset Name</comment>
-            <translation>Nombre invalido</translation>
+            <translation>無效預設名稱</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="2141" />
             <source>dialog.invalid_preset_name.message</source>
             <comment>Preset name cannot be empty.</comment>
             <translation>
-                <numerusform>El nombre del preset no puede estar vacio.</numerusform>
-                <numerusform>El nombre del preset no puede estar vacio.</numerusform>
+                <numerusform>預設名稱不可為空。</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2151" />
             <source>dialog.builtin_preset.title</source>
             <comment>Built-in Preset</comment>
-            <translation>Preset integrado</translation>
+            <translation>內建預設</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="2153" />
@@ -634,56 +621,53 @@
             <comment>'{name}' is a built-in preset and cannot be overwritten.
 Please choose a different preset name.</comment>
             <translation>
-                <numerusform>'{name}' es un preset integrado y no se puede sobrescribir.
-Elige un nombre diferente.</numerusform>
-                <numerusform>'{name}' es un preset integrado y no se puede sobrescribir.
-Elige un nombre diferente.</numerusform>
+                <numerusform>'{name}' 是內建預設，無法覆寫。
+請選擇其他預設名稱。</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2165" />
             <source>dialog.preset_exists.title</source>
             <comment>Preset Exists</comment>
-            <translation>Preset existente</translation>
+            <translation>預設已存在</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="2167" />
             <source>dialog.preset_exists.message</source>
             <comment>Preset '{name}' already exists. Choose another name.</comment>
             <translation>
-                <numerusform>El preset '{name}' ya existe. Elige otro nombre.</numerusform>
-                <numerusform>El preset '{name}' ya existe. Elige otro nombre.</numerusform>
+                <numerusform>預設 '{name}' 已存在。請選擇其他名稱。</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2212" />
             <source>dialog.duplicate_preset.title</source>
             <comment>Duplicate Preset</comment>
-            <translation>Duplicar Preset</translation>
+            <translation>複製預設</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2213" />
             <source>dialog.duplicate_preset.prompt</source>
             <comment>Duplicate preset name:</comment>
-            <translation>Nombre del preset duplicado:</translation>
+            <translation>複製後預設名稱:</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2246" />
             <source>dialog.rename_preset.title</source>
             <comment>Rename Preset</comment>
-            <translation>Renombrar Preset</translation>
+            <translation>重新命名預設</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2247" />
             <source>dialog.rename_preset.prompt</source>
             <comment>New preset name:</comment>
-            <translation>Nuevo nombre del preset:</translation>
+            <translation>新預設名稱:</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2330" />
             <source>dialog.delete_preset.title</source>
             <comment>Delete Preset</comment>
-            <translation>Eliminar Preset</translation>
+            <translation>刪除預設</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="2332" />
@@ -692,12 +676,9 @@ Elige un nombre diferente.</numerusform>
 
 If deleted, affected cars will be reassigned to '{default_preset}'. Continue?</comment>
             <translation>
-                <numerusform>El preset '{name}' esta asignado a {count} coche(s): {cars}.
+                <numerusform>預設 '{name}' 已指派給 {count} 輛車: {cars}。
 
-Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</numerusform>
-                <numerusform>El preset '{name}' esta asignado a {count} coche(s): {cars}.
-
-Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</numerusform>
+刪除後，受影響車輛將重新指派至 '{default_preset}'。是否繼續？</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -705,8 +686,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.upshift_low</source>
             <comment>Upshift RPM target at low throttle (gentle driving).</comment>
             <translation>
-                <numerusform>Objetivo de RPM de upshift con acelerador bajo (conduccion suave).</numerusform>
-                <numerusform>Objetivo de RPM de upshift con acelerador bajo (conduccion suave).</numerusform>
+                <numerusform>低油門升檔目標轉速（溫和駕駛）。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -714,8 +694,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.upshift_high</source>
             <comment>Upshift RPM target at high throttle (aggressive driving).</comment>
             <translation>
-                <numerusform>Objetivo de RPM de upshift con acelerador alto (conduccion agresiva).</numerusform>
-                <numerusform>Objetivo de RPM de upshift con acelerador alto (conduccion agresiva).</numerusform>
+                <numerusform>高油門時升檔轉速目標（激進駕駛）。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -723,8 +702,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.downshift_low</source>
             <comment>Downshift RPM target at low throttle.</comment>
             <translation>
-                <numerusform>Objetivo de RPM de downshift con acelerador bajo.</numerusform>
-                <numerusform>Objetivo de RPM de downshift con acelerador bajo.</numerusform>
+                <numerusform>以低油門降檔轉速目標。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -732,8 +710,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.downshift_high</source>
             <comment>Downshift RPM target at high throttle or braking load.</comment>
             <translation>
-                <numerusform>Objetivo de RPM de downshift con acelerador alto o frenado.</numerusform>
-                <numerusform>Objetivo de RPM de downshift con acelerador alto o frenado.</numerusform>
+                <numerusform>在高油門或煞車負載時降檔轉速目標。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -741,8 +718,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.cooldown</source>
             <comment>Minimum time between shifts to avoid rapid gear hunting.</comment>
             <translation>
-                <numerusform>Tiempo minimo entre cambios para evitar cambios repetitivos.</numerusform>
-                <numerusform>Tiempo minimo entre cambios para evitar cambios repetitivos.</numerusform>
+                <numerusform>最短的換檔間隔時間，以避免快速換檔。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -750,23 +726,21 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.enable_dwell</source>
             <comment>Enable extra per-shift dwell hold times.</comment>
             <translation>
-                <numerusform>Habilita tiempos extra de espera por cambio.</numerusform>
-                <numerusform>Habilita tiempos extra de espera por cambio.</numerusform>
+                <numerusform>啟用額外的每班停留保持時間。</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2404" />
             <source>tooltip.tuning.dwell_up</source>
             <comment>Extra hold time after an upshift.</comment>
-            <translation>Tiempo extra de espera despues de un upshift.</translation>
+            <translation>升檔後的額外保持時間。</translation>
         </message>
         <message numerus="yes">
             <location filename="../gui_app.py" line="2409" />
             <source>tooltip.tuning.dwell_down</source>
             <comment>Extra hold time after a downshift.</comment>
             <translation>
-                <numerusform>Tiempo extra de espera despues de un downshift.</numerusform>
-                <numerusform>Tiempo extra de espera despues de un downshift.</numerusform>
+                <numerusform>降檔後的額外保持時間。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -774,8 +748,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.dwell_kickdown</source>
             <comment>Extra hold time after a kickdown downshift.</comment>
             <translation>
-                <numerusform>Tiempo extra de espera despues de un downshift por kickdown.</numerusform>
-                <numerusform>Tiempo extra de espera despues de un downshift por kickdown.</numerusform>
+                <numerusform>強制降檔後的額外保持時間。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -783,8 +756,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.kickdown_threshold</source>
             <comment>Throttle threshold to allow kickdown downshifts.</comment>
             <translation>
-                <numerusform>Umbral de acelerador para permitir downshifts por kickdown.</numerusform>
-                <numerusform>Umbral de acelerador para permitir downshifts por kickdown.</numerusform>
+                <numerusform>允許強制降檔的油門閾值。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -792,8 +764,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.kickdown_max_rpm</source>
             <comment>Maximum RPM where kickdown is allowed.</comment>
             <translation>
-                <numerusform>RPM maxima en la que se permite kickdown.</numerusform>
-                <numerusform>RPM maxima en la que se permite kickdown.</numerusform>
+                <numerusform>允許強制降檔的最大轉速。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -801,8 +772,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.kickdown_lockout</source>
             <comment>Time to block kickdown immediately after upshift.</comment>
             <translation>
-                <numerusform>Tiempo para bloquear kickdown inmediatamente tras un upshift.</numerusform>
-                <numerusform>Tiempo para bloquear kickdown inmediatamente tras un upshift.</numerusform>
+                <numerusform>升檔後立即阻止強制降檔。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -810,8 +780,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.enable_unload_guard</source>
             <comment>Blocks upshift briefly when suspension unload indicates airborne/crest.</comment>
             <translation>
-                <numerusform>Bloquea brevemente el upshift cuando la descarga de suspension sugiere salto/cresta.</numerusform>
-                <numerusform>Bloquea brevemente el upshift cuando la descarga de suspension sugiere salto/cresta.</numerusform>
+                <numerusform>當懸吊卸載指示空中/波峰時，短暫阻止升檔。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -819,8 +788,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.unload_threshold</source>
             <comment>Normalized suspension travel threshold for unload detection.</comment>
             <translation>
-                <numerusform>Umbral normalizado de recorrido de suspension para detectar descarga.</numerusform>
-                <numerusform>Umbral normalizado de recorrido de suspension para detectar descarga.</numerusform>
+                <numerusform>用於卸載偵測的歸一化懸吊行程閾值。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -828,8 +796,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.unload_guard_duration</source>
             <comment>How long upshift stays blocked after unload is detected.</comment>
             <translation>
-                <numerusform>Cuanto tiempo permanece bloqueado el upshift tras detectar descarga.</numerusform>
-                <numerusform>Cuanto tiempo permanece bloqueado el upshift tras detectar descarga.</numerusform>
+                <numerusform>偵測到卸載後升檔保持鎖定狀態的時間。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -837,8 +804,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.unload_min_throttle</source>
             <comment>Minimum throttle required before unload guard can trigger.</comment>
             <translation>
-                <numerusform>Acelerador minimo requerido para que se active la proteccion por descarga.</numerusform>
-                <numerusform>Acelerador minimo requerido para que se active la proteccion por descarga.</numerusform>
+                <numerusform>卸載防護裝置觸發之前所需的最小油門。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -846,8 +812,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.enable_slip_guard</source>
             <comment>Blocks upshift briefly when driven tire slip is high.</comment>
             <translation>
-                <numerusform>Bloquea brevemente el upshift cuando hay alto deslizamiento de ruedas motrices.</numerusform>
-                <numerusform>Bloquea brevemente el upshift cuando hay alto deslizamiento de ruedas motrices.</numerusform>
+                <numerusform>當驅動輪胎打滑較高時，短暫阻止升檔。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -855,8 +820,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.slip_threshold</source>
             <comment>Slip ratio threshold used to trigger slip upshift guard.</comment>
             <translation>
-                <numerusform>Umbral de relacion de deslizamiento para activar la proteccion de upshift por slip.</numerusform>
-                <numerusform>Umbral de relacion de deslizamiento para activar la proteccion de upshift por slip.</numerusform>
+                <numerusform>用於觸發打滑升檔防護裝置的打滑率閾值。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -864,8 +828,7 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.slip_guard_duration</source>
             <comment>How long upshift stays blocked after slip trigger.</comment>
             <translation>
-                <numerusform>Cuanto tiempo permanece bloqueado el upshift tras detectar slip.</numerusform>
-                <numerusform>Cuanto tiempo permanece bloqueado el upshift tras detectar slip.</numerusform>
+                <numerusform>滑動扳機後升檔被阻止的時間有多長。</numerusform>
             </translation>
         </message>
         <message numerus="yes">
@@ -873,15 +836,14 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <source>tooltip.tuning.slip_min_throttle</source>
             <comment>Minimum throttle required before slip guard can trigger.</comment>
             <translation>
-                <numerusform>Acelerador minimo requerido para que se active la proteccion por slip.</numerusform>
-                <numerusform>Acelerador minimo requerido para que se active la proteccion por slip.</numerusform>
+                <numerusform>防滑裝置觸發之前所需的最小油門。</numerusform>
             </translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2525" />
             <source>button.recording_hotkey</source>
             <comment>Recording... (ESC to cancel)</comment>
-            <translation>Grabando... (ESC para cancelar)</translation>
+            <translation>錄製中...（ESC 取消）</translation>
         </message>
     </context>
 </TS>

@@ -102,7 +102,7 @@ LOG_LEVEL_ORDER = {
 MAPVK_VK_TO_VSC = 0
 DEFAULT_CAR_PRESET_NAME = "street"
 AUTO_LANGUAGE_CODE = "auto"
-SUPPORTED_UI_LANGUAGE_CODES = ("en", "es")
+SUPPORTED_UI_LANGUAGE_CODES = ("en", "es", "fr", "de", "zh_cn", "zh_tw", "ja_jp")
 UI_LANGUAGE_CODES = (AUTO_LANGUAGE_CODE, *SUPPORTED_UI_LANGUAGE_CODES)
 
 DEFAULT_AT_CONFIG_VALUES: dict[str, object] = {
@@ -423,8 +423,28 @@ class MainWindow(QMainWindow):
             "en",
         )
         self.ui_language_input.addItem(
-            self._t("language.es", "Spanish"),
+            self._t("language.es", "Español"),
             "es",
+        )
+        self.ui_language_input.addItem(
+            self._t("language.fr", "Français"),
+            "fr",
+        )
+        self.ui_language_input.addItem(
+            self._t("language.de", "Deutsch"),
+            "de",
+        )
+        self.ui_language_input.addItem(
+            self._t("language.zh_cn", "简体中文"),
+            "zh_cn",
+        )
+        self.ui_language_input.addItem(
+            self._t("language.zh_tw", "繁體中文"),
+            "zh_tw",
+        )
+        self.ui_language_input.addItem(
+            self._t("language.ja_jp", "日本語"),
+            "ja_jp",
         )
         current_index = self.ui_language_input.findData(self._ui_language)
         if current_index < 0:
@@ -2737,7 +2757,13 @@ def run_gui() -> int:
         if selected != AUTO_LANGUAGE_CODE:
             return selected
         system_name = QLocale.system().name().strip().lower().replace("-", "_")
+        if system_name in SUPPORTED_UI_LANGUAGE_CODES:
+            return system_name
         base = system_name.split("_", 1)[0] if system_name else ""
+        if base == "zh":
+            return "zh_cn"
+        if base == "ja":
+            return "ja_jp"
         if base in SUPPORTED_UI_LANGUAGE_CODES:
             return base
         return "en"
