@@ -6,6 +6,7 @@ import sys
 import time
 import ctypes
 import json
+import os
 from pathlib import Path
 
 from pynput import keyboard
@@ -104,6 +105,29 @@ DEFAULT_CAR_PRESET_NAME = "street"
 AUTO_LANGUAGE_CODE = "auto"
 SUPPORTED_UI_LANGUAGE_CODES = ("en", "es", "fr", "de", "zh_cn", "zh_tw", "ja_jp")
 UI_LANGUAGE_CODES = (AUTO_LANGUAGE_CODE, *SUPPORTED_UI_LANGUAGE_CODES)
+APP_STATE_DIR_NAME = "ForzaAutoShift"
+PORTABLE_MARKER_FILE = "portable"
+
+
+def _resolve_executable_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    if sys.argv and sys.argv[0]:
+        return Path(sys.argv[0]).resolve().parent
+    return Path.cwd()
+
+
+def _resolve_state_file_path() -> Path:
+    executable_dir = _resolve_executable_dir()
+    if (executable_dir / PORTABLE_MARKER_FILE).exists():
+        return executable_dir / APP_STATE_FILE_NAME
+
+    local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
+    base_dir = (
+        Path(local_app_data) if local_app_data else (Path.home() / "AppData" / "Local")
+    )
+    return base_dir / APP_STATE_DIR_NAME / APP_STATE_FILE_NAME
+
 
 DEFAULT_AT_CONFIG_VALUES: dict[str, object] = {
     "upshift_rpm_low_throttle": 2800.0,
@@ -479,7 +503,7 @@ class MainWindow(QMainWindow):
         self._car_binding_remove_buttons: list[QPushButton] = []
         self._suppress_car_binding_updates = False
         self._suppress_preset_auto_apply = False
-        self._state_file_path = Path.cwd() / APP_STATE_FILE_NAME
+        self._state_file_path = _resolve_state_file_path()
         self._ui_language = self._load_initial_ui_language_preference()
         self._play_worker_chime_enabled = True
         self._chime_start_effect = None
@@ -1778,6 +1802,7 @@ class MainWindow(QMainWindow):
     def _save_app_state(self) -> None:
         state = self._collect_app_state()
         try:
+            self._state_file_path.parent.mkdir(parents=True, exist_ok=True)
             save_state_file(self._state_file_path, state)
         except OSError as exc:
             self.append_log(f"[WARN] Could not save app state: {exc}")
@@ -2769,7 +2794,7 @@ def run_gui() -> int:
         return "en"
 
     def _load_selected_ui_language_from_state() -> str:
-        state_path = Path.cwd() / APP_STATE_FILE_NAME
+        state_path = _resolve_state_file_path()
         if not state_path.exists():
             return AUTO_LANGUAGE_CODE
         try:
