@@ -1,6 +1,7 @@
 param(
     [ValidateSet('onedir', 'onefile')]
     [string]$Mode = 'onedir',
+    [string]$IconPath = 'forza_auto_shift\assets\icon.ico',
     [switch]$DryRun
 )
 
@@ -15,6 +16,7 @@ if (-not (Test-Path $pyInstaller)) {
 }
 
 $entry = 'run.py'
+$resolvedIconPath = Join-Path $repoRoot $IconPath
 
 $args = @(
     '--noconfirm',
@@ -25,6 +27,12 @@ $args = @(
     '--add-data', 'forza_auto_shift\i18n;forza_auto_shift\i18n',
     '--add-data', 'forza_auto_shift\assets;forza_auto_shift\assets'
 )
+
+if (Test-Path $resolvedIconPath) {
+    $args += @('--icon', $resolvedIconPath)
+} else {
+    Write-Warning "Icon file not found: $resolvedIconPath. Building without custom exe icon."
+}
 
 # Keep bundle lean: rely on import analysis and explicitly exclude heavy Qt stacks
 # this app does not use.
