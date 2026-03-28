@@ -216,3 +216,4 @@ __marimo__/
 .streamlit/secrets.toml
 
 DEV.md
+forza_auto_shift_state.json

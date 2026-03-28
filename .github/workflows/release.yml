@@ -1,0 +1,91 @@
+name: Build and Release (Windows)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (example: v1.0.0)"
+        required: true
+        type: string
+      release_name:
+        description: "Release title"
+        required: true
+        type: string
+      draft:
+        description: "Create as draft"
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        description: "Mark as prerelease"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Build onefile executable
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File tools/build_pyinstaller.ps1 -Mode onefile
+
+      - name: Verify output
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/forza-auto-shift.exe")) {
+            throw "Expected output dist/forza-auto-shift.exe not found"
+          }
+
+      - name: Generate SHA256 checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 "dist/forza-auto-shift.exe").Hash.ToLower()
+          "$hash  forza-auto-shift.exe" | Set-Content "dist/forza-auto-shift.exe.sha256"
+
+      - name: Verify checksum file
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/forza-auto-shift.exe.sha256")) {
+            throw "Expected checksum file dist/forza-auto-shift.exe.sha256 not found"
+          }
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: forza-auto-shift-windows-exe
+          path: |
+            dist/forza-auto-shift.exe
+            dist/forza-auto-shift.exe.sha256
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          name: ${{ github.event.inputs.release_name }}
+          draft: ${{ github.event.inputs.draft }}
+          prerelease: ${{ github.event.inputs.prerelease }}
+          generate_release_notes: true
+          files: |
+            dist/forza-auto-shift.exe
+            dist/forza-auto-shift.exe.sha256
