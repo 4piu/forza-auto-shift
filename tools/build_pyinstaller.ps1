@@ -10,9 +10,20 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
-$pyInstaller = Join-Path $repoRoot 'venv\Scripts\pyinstaller.exe'
-if (-not (Test-Path $pyInstaller)) {
-    throw "pyinstaller not found at $pyInstaller. Install it with: venv\\Scripts\\python.exe -m pip install pyinstaller"
+$venvPython = Join-Path $repoRoot 'venv\Scripts\python.exe'
+if (Test-Path $venvPython) {
+    $pythonExe = $venvPython
+} else {
+    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($null -eq $pythonCmd) {
+        throw "python not found on PATH. Install Python or activate your environment first."
+    }
+    $pythonExe = $pythonCmd.Source
+}
+
+& $pythonExe -m PyInstaller --version *> $null
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller is not installed for $pythonExe. Install it with: $pythonExe -m pip install pyinstaller"
 }
 
 $entry = 'run.py'
@@ -62,9 +73,9 @@ if ($Mode -eq 'onefile') {
 $args += $entry
 
 if ($DryRun) {
-    Write-Host "$pyInstaller $($args -join ' ')"
+    Write-Host "$pythonExe -m PyInstaller $($args -join ' ')"
     exit 0
 }
 
-& $pyInstaller @args
+& $pythonExe -m PyInstaller @args
 exit $LASTEXITCODE
