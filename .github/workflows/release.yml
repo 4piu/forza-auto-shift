@@ -33,22 +33,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version-file: ".python-version"
 
       - name: Install dependencies
         shell: pwsh
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install pyinstaller
+          uv sync --locked
 
       - name: Build onefile executable
         shell: pwsh
         run: |
-          powershell -ExecutionPolicy Bypass -File tools/build_pyinstaller.ps1 -Mode onefile
+          uv run --with pyinstaller powershell -ExecutionPolicy Bypass -File tools/build_pyinstaller.ps1 -Mode onefile
 
       - name: Verify output
         shell: pwsh
