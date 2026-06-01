@@ -901,7 +901,7 @@ class MainWindow(QMainWindow):
         car_filter_row = QHBoxLayout()
         car_filter_row.addWidget(QLabel(self._t("label.filter", "Filter:")))
         self.car_filter_combo = QComboBox()
-        self.car_filter_combo.addItems(["All", "FH4", "FH5", "FM"])
+        self.car_filter_combo.addItems(["All", "FH4", "FH5", "FH6", "FM"])
         self.car_filter_combo.setCurrentText("All")
         self.car_filter_combo.setMaximumWidth(120)
         self.car_filter_combo.currentTextChanged.connect(self._on_car_filter_changed)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Mapping
 
-SUPPORTED_GAME_CODES = {"FH4", "FH5", "FM"}
+SUPPORTED_GAME_CODES = {"FH4", "FH5", "FH6", "FM"}
 
 
 @dataclass(frozen=True)

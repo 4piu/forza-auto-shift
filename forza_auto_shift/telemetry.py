@@ -13,7 +13,8 @@ DEFAULT_BUFFER_SIZE = 1024
 SLED_SIZE_FH = 224
 SLED_SIZE_FM = 232
 DASH_SIZE_CLASSIC = 311
-DASH_SIZE_FH4_RAW = 324
+DASH_SIZE_HORIZON_RAW = 324
+DASH_SIZE_FH4_RAW = DASH_SIZE_HORIZON_RAW
 DASH_SIZE_FM_RAW = 331
 
 # (field_name, struct_format)
@@ -78,6 +79,14 @@ SLED_FIELDS_FM = [
     ("NumCylinders", "i"),
 ]
 
+SLED_FIELDS_HORIZON = [
+    (
+        field_name.replace("WheelInPuddleDepth", "WheelInPuddle"),
+        "i" if field_name.startswith("WheelInPuddleDepth") else field_type,
+    )
+    for field_name, field_type in SLED_FIELDS_FM
+]
+
 DASH_FIELDS_CLASSIC_EXTRA = [
     ("PositionX", "f"),
     ("PositionY", "f"),
@@ -108,6 +117,12 @@ DASH_FIELDS_CLASSIC_EXTRA = [
     ("NormalizedAIBrakeDifference", "b"),
 ]
 
+DASH_FIELDS_HORIZON_EXTRA = [
+    ("CarGroup", "I"),
+    ("SmashableVelDiff", "f"),
+    ("SmashableMass", "f"),
+] + DASH_FIELDS_CLASSIC_EXTRA
+
 DASH_FIELDS_FM_EXTRA = DASH_FIELDS_CLASSIC_EXTRA + [
     ("TireWearFrontLeft", "f"),
     ("TireWearFrontRight", "f"),
@@ -117,6 +132,7 @@ DASH_FIELDS_FM_EXTRA = DASH_FIELDS_CLASSIC_EXTRA + [
 ]
 
 DASH_FIELDS_CLASSIC = SLED_FIELDS_FM + DASH_FIELDS_CLASSIC_EXTRA
+DASH_FIELDS_HORIZON = SLED_FIELDS_HORIZON + DASH_FIELDS_HORIZON_EXTRA
 DASH_FIELDS_FM = SLED_FIELDS_FM + DASH_FIELDS_FM_EXTRA
 
 
@@ -173,9 +189,11 @@ class TelemetryPacket:
         raw_gear = int(self.values["Gear"])
         if raw_gear < 0:
             return None
-        # FM 2023 can briefly report raw gear 11 during shift transitions.
+        # FM 2023 can briefly report raw gear 11 during shift transitions. FH6 also has similar behavior
         # Treat those transient sentinel values as unknown so AT logic ignores them.
         if self.packet_type == "Dash-FM" and raw_gear >= 11:
+            return None
+        if self.packet_type == "Dash-Horizon" and raw_gear >= 11:
             return None
         return raw_gear
 
@@ -225,13 +243,12 @@ def decode_with_schema(
 def decode_packet(data: bytes) -> TelemetryPacket:
     packet_size = len(data)
 
-    if packet_size == DASH_SIZE_FH4_RAW:
-        patched_data = data[:232] + data[244:323]
+    if packet_size == DASH_SIZE_HORIZON_RAW:
         try:
-            values = decode_with_schema(patched_data, DASH_FIELDS_CLASSIC)
-            return TelemetryPacket("Dash-FH4", values, data)
+            values = decode_with_schema(data, DASH_FIELDS_HORIZON)
+            return TelemetryPacket("Dash-Horizon", values, data)
         except ValueError as exc:
-            raise PacketDecodeError(f"Dash-FH4: {exc}") from exc
+            raise PacketDecodeError(f"Dash-Horizon: {exc}") from exc
 
     candidates_by_size: dict[int, list[tuple[str, list[tuple[str, str]]]]] = {
         SLED_SIZE_FM: [("Sled-FM", SLED_FIELDS_FM)],

@@ -16,7 +16,7 @@ def listen_for_telemetry() -> None:
     print(f"Listening for telemetry on UDP {DEFAULT_TELEMETRY_PORT}...")
     print("Enable Data Out in Forza and choose Sled or Dash format.")
     print(
-        "Known packet sizes: Sled-FH=224, Sled-FM=232, Dash-Classic=311, Dash-FH4(raw)=324"
+        "Known packet sizes: Sled-FH=224, Sled-FM=232, Dash-Classic=311, Dash-Horizon(raw)=324"
     )
     print("-" * 80)
 

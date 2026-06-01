@@ -37,6 +37,7 @@ LOG_LEVEL_ORDER = {
 PROCESS_NAME_TO_GAME_CODE = {
     "forzahorizon4.exe": "FH4",
     "forzahorizon5.exe": "FH5",
+    "forzahorizon6.exe": "FH6",
     "forzamotorsport.exe": "FM",
     "forza_gaming.desktop.x64_release_final.exe": "FM",
 }
@@ -44,6 +45,7 @@ PROCESS_NAME_TO_GAME_CODE = {
 FORZA_PROCESS_NAMES = {
     "forzahorizon4.exe",
     "forzahorizon5.exe",
+    "forzahorizon6.exe",
     "forzamotorsport.exe",
     "forza_gaming.desktop.x64_release_final.exe",
 }
