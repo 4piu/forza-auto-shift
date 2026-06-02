@@ -389,7 +389,7 @@ class MainWindow(QMainWindow):
 
     hotkey_pressed = Signal(object)
     hotkey_released = Signal(object)
-    worker_config_update_requested = Signal(object)
+    worker_config_update_requested = Signal(object, str, str)
 
     # Modifier keys to track
     MODIFIER_KEYS = {
@@ -510,6 +510,7 @@ class MainWindow(QMainWindow):
         self._car_binding_remove_buttons: list[QPushButton] = []
         self._suppress_car_binding_updates = False
         self._suppress_preset_auto_apply = False
+        self._last_detected_car_key = ""
         self._state_file_path = _resolve_state_file_path()
         self._ui_language = self._load_initial_ui_language_preference()
         self._play_worker_chime_enabled = True
@@ -1082,8 +1083,6 @@ class MainWindow(QMainWindow):
         shift_up_scan_code = self._shift_up_scan_code
         log_level = self.log_level_input.currentText()
 
-        at_config = self._build_at_config_from_editor()
-
         thread = QThread(self)
         worker = AutoShiftWorker(
             bind_host=bind_host,
@@ -1096,7 +1095,6 @@ class MainWindow(QMainWindow):
             shift_up_scan_code=shift_up_scan_code,
             shift_down_key_name=self._shift_down_key_name,
             shift_up_key_name=self._shift_up_key_name,
-            at_config=at_config,
             log_level=log_level,
         )
         worker.moveToThread(thread)
@@ -1105,8 +1103,13 @@ class MainWindow(QMainWindow):
         worker.log.connect(self.append_log)
         worker.status.connect(self.set_status)
         worker.car_detected.connect(self._on_car_detected)
-        self.worker_config_update_requested.connect(worker.update_at_config)
+        worker.car_config_requested.connect(self._on_car_config_requested)
+        self.worker_config_update_requested.connect(
+            worker.update_at_config,
+            Qt.ConnectionType.DirectConnection,
+        )
         worker.finished.connect(self.on_worker_finished)
+        worker.finished.connect(worker.deleteLater)
         worker.finished.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
 
@@ -1153,8 +1156,9 @@ class MainWindow(QMainWindow):
             return None
         return host, port
 
-    def _build_at_config_from_editor(self) -> AutomaticTransmissionConfig:
-        values = self._collect_full_tuning_values()
+    def _build_at_config_from_values(
+        self, values: dict[str, object]
+    ) -> AutomaticTransmissionConfig:
         return AutomaticTransmissionConfig(
             upshift_rpm_low_throttle=float(values["upshift_rpm_low_throttle"]),
             upshift_rpm_high_throttle=float(values["upshift_rpm_high_throttle"]),
@@ -1211,6 +1215,27 @@ class MainWindow(QMainWindow):
             slip_guard_min_throttle=float(values["slip_guard_min_throttle"]),
         )
 
+    def _build_at_config_from_editor(self) -> AutomaticTransmissionConfig:
+        return self._build_at_config_from_values(self._collect_full_tuning_values())
+
+    def _resolve_car_at_config(
+        self, car_key: str
+    ) -> tuple[AutomaticTransmissionConfig, str]:
+        if not car_key:
+            raise ValueError("Cannot resolve AT config for an empty car key.")
+        default_preset = self._default_preset_name()
+        if car_key not in self._car_preset_map:
+            self._car_preset_map[car_key] = default_preset
+        preset_name = self._car_preset_map.get(car_key, default_preset)
+        if preset_name not in self._preset_store:
+            preset_name = default_preset
+            self._car_preset_map[car_key] = preset_name
+
+        preset_values = self._normalize_preset_values(
+            self._preset_store.get(preset_name)
+        )
+        return self._build_at_config_from_values(preset_values), preset_name
+
     def _set_input_controls_enabled(self, enabled: bool) -> None:
         """Enable/disable all input controls but keep tabs switchable."""
         # Connection tab
@@ -1223,28 +1248,22 @@ class MainWindow(QMainWindow):
         self.record_shift_up_button.setEnabled(enabled)
         # Tuning tab controls (built-in presets are read-only in editor)
         active_is_builtin = self._active_preset_name.lower() in BUILTIN_PRESET_TEMPLATES
-        self._set_tuning_fields_enabled(enabled and not active_is_builtin)
+        self._set_tuning_fields_enabled(not active_is_builtin)
         # Preset editor + binding tab
-        self.preset_list.setEnabled(enabled)
-        self.preset_create_button.setEnabled(enabled)
+        self.preset_list.setEnabled(True)
+        self.preset_create_button.setEnabled(True)
         self.preset_duplicate_button.setEnabled(
-            enabled and bool(self._active_preset_name)
+            bool(self._active_preset_name)
         )
-        self.preset_rename_button.setEnabled(enabled and bool(self._active_preset_name))
-        self.preset_save_button.setEnabled(enabled and bool(self._active_preset_name))
-        self.binding_default_preset_combo.setEnabled(enabled)
-        self.car_binding_table.setEnabled(enabled)
+        self.preset_rename_button.setEnabled(bool(self._active_preset_name))
+        self.preset_save_button.setEnabled(bool(self._active_preset_name))
+        self.binding_default_preset_combo.setEnabled(True)
+        self.car_binding_table.setEnabled(True)
         for combo in self._car_binding_preset_combos:
-            combo.setEnabled(enabled)
+            combo.setEnabled(True)
         for button in self._car_binding_remove_buttons:
-            button.setEnabled(enabled)
-        if enabled:
-            self._update_preset_delete_button_state()
-        else:
-            self.preset_delete_button.setEnabled(False)
-            self.preset_delete_button.setToolTip(
-                self._t("tooltip.unavailable_running", "Unavailable while running")
-            )
+            button.setEnabled(True)
+        self._update_preset_delete_button_state()
         # Hotkey and log level
         self.log_level_input.setEnabled(enabled)
         self.ui_language_input.setEnabled(enabled)
@@ -1987,13 +2006,6 @@ class MainWindow(QMainWindow):
                 remove_button,
             )
 
-        if self._thread is not None:
-            self.car_binding_table.setEnabled(False)
-            for combo in self._car_binding_preset_combos:
-                combo.setEnabled(False)
-            for button in self._car_binding_remove_buttons:
-                button.setEnabled(False)
-
         self._suppress_car_binding_updates = False
 
     @Slot(QTableWidgetItem)
@@ -2017,10 +2029,33 @@ class MainWindow(QMainWindow):
             self.append_log(f"[INFO] Car {game_code}-{car_id} alias reset to default.")
         self._save_app_state()
 
-    @Slot(int, str)
-    def _on_car_detected(self, car_ordinal: int, game_code: str) -> None:
+    def _emit_current_car_config_if_running(self) -> None:
+        if (
+            self._thread is None
+            or self._worker is None
+            or not self._last_detected_car_key
+        ):
+            return
+        config, preset_name = self._resolve_car_at_config(self._last_detected_car_key)
+        self.worker_config_update_requested.emit(
+            config,
+            preset_name,
+            self._last_detected_car_key,
+        )
+
+    def _emit_current_car_config_if_using_preset(self, preset_name: str) -> None:
+        if not self._last_detected_car_key:
+            return
+        if self._car_preset_map.get(self._last_detected_car_key) != preset_name:
+            return
+        self._emit_current_car_config_if_running()
+
+    @Slot(str, int)
+    def _on_car_config_requested(self, game_code: str, car_ordinal: int) -> None:
         car_id = str(car_ordinal)
         normalized_game_code = self._normalize_game_code(game_code)
+        if not normalized_game_code:
+            return
         default_preset = self._default_preset_name()
         car_key, was_new = upsert_detected_car(
             car_preset_map=self._car_preset_map,
@@ -2028,36 +2063,28 @@ class MainWindow(QMainWindow):
             car_id=car_id,
             default_preset=default_preset,
         )
+        if not car_key:
+            return
+        self._last_detected_car_key = car_key
+        config, preset_name = self._resolve_car_at_config(car_key)
         if was_new:
             self._refresh_car_preset_list()
             self._save_app_state()
             self.append_log(
                 f"[INFO] New car detected: {normalized_game_code}-{car_id}. Assigned default preset '{default_preset}'."
             )
+        self.worker_config_update_requested.emit(config, preset_name, car_key)
 
-        mapped_preset = self._car_preset_map.get(car_key)
-        if mapped_preset and mapped_preset in self._preset_store:
-            current_name = self._active_preset_name.strip()
-            if current_name != mapped_preset:
-                self._apply_preset_by_name(
-                    mapped_preset,
-                    log_context=f"{normalized_game_code}-{car_id}",
-                )
-            if self._thread is not None and self._worker is not None:
-                cfg = self._build_at_config_from_editor()
-                self.append_log(
-                    (
-                        "[INFO] Emitting AT config for "
-                        f"{normalized_game_code}-{car_id}: "
-                        f"up_low={cfg.upshift_rpm_low_throttle:.0f}, "
-                        f"up_high={cfg.upshift_rpm_high_throttle:.0f}, "
-                        f"down_low={cfg.downshift_rpm_low_throttle:.0f}, "
-                        f"down_high={cfg.downshift_rpm_high_throttle:.0f}, "
-                        f"kick_thr={cfg.kickdown_throttle_threshold:.2f}, "
-                        f"kick_max={cfg.kickdown_max_rpm:.0f}"
-                    )
-                )
-                self.worker_config_update_requested.emit(cfg)
+    @Slot(int, str)
+    def _on_car_detected(self, car_ordinal: int, game_code: str) -> None:
+        car_id = str(car_ordinal)
+        normalized_game_code = self._normalize_game_code(game_code)
+        car_key = self._car_storage_key(
+            normalized_game_code,
+            car_id,
+        )
+        if car_key:
+            self._last_detected_car_key = car_key
 
     @Slot(str, str)
     def _on_car_preset_changed(self, car_key: str, preset_name: str) -> None:
@@ -2065,20 +2092,35 @@ class MainWindow(QMainWindow):
             return
         if preset_name not in self._preset_store:
             return
+        game_code, car_id = self._split_car_key(car_key)
+        if not game_code:
+            return
         self._car_preset_map[car_key] = preset_name
         self._save_app_state()
-        game_code, car_id = self._split_car_key(car_key)
         self.append_log(
             f"[INFO] Car {game_code}-{car_id} assigned to preset '{preset_name}'."
         )
+        if car_key == self._last_detected_car_key:
+            self._emit_current_car_config_if_running()
 
     @Slot(str)
     def _remove_car_binding(self, car_key: str) -> None:
         if car_key not in self._car_preset_map:
             return
         game_code, car_id = self._split_car_key(car_key)
+        if not game_code:
+            return
+        is_current_running_car = (
+            car_key == self._last_detected_car_key
+            and self._thread is not None
+            and self._worker is not None
+        )
         del self._car_preset_map[car_key]
         self._car_alias_map.pop(car_key, None)
+        if is_current_running_car:
+            self._emit_current_car_config_if_running()
+        elif car_key == self._last_detected_car_key:
+            self._last_detected_car_key = ""
         self._refresh_car_preset_list()
         self._save_app_state()
         self.append_log(f"[INFO] Removed car assignment for {game_code}-{car_id}.")
@@ -2225,6 +2267,7 @@ class MainWindow(QMainWindow):
         self._refresh_preset_selector()
         self._save_app_state()
         self.append_log(f"[INFO] Created preset '{name}'.")
+        self._emit_current_car_config_if_using_preset(name)
 
     @Slot()
     def _save_selected_preset(self) -> None:
@@ -2242,6 +2285,7 @@ class MainWindow(QMainWindow):
         )
         self._save_app_state()
         self.append_log(f"[INFO] Saved preset '{name}'.")
+        self._emit_current_car_config_if_using_preset(name)
 
     @Slot()
     def _duplicate_selected_preset(self) -> None:
@@ -2319,6 +2363,7 @@ class MainWindow(QMainWindow):
         self._refresh_preset_selector()
         self._save_app_state()
         self.append_log(f"[INFO] Renamed preset '{source_name}' to '{new_name}'.")
+        self._emit_current_car_config_if_using_preset(new_name)
 
     def _apply_preset_by_name(self, name: str, log_context: str | None = None) -> None:
         if not name or name not in self._preset_store:
@@ -2365,6 +2410,7 @@ class MainWindow(QMainWindow):
                 car_preset_map=self._car_preset_map,
                 preset_name=name,
             )
+            current_car_affected = self._last_detected_car_key in affected_cars
             if affected_cars:
                 default_preset = self._default_preset_name()
                 formatted_cars = format_car_keys(affected_cars)
@@ -2399,6 +2445,8 @@ class MainWindow(QMainWindow):
             self._refresh_preset_selector()
             self._save_app_state()
             self.append_log(f"[INFO] Deleted preset '{name}'.")
+            if current_car_affected:
+                self._emit_current_car_config_if_running()
 
     def _set_tuning_tooltips(self) -> None:
         self._set_tooltip_with_label(

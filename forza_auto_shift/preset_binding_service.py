@@ -52,6 +52,8 @@ def build_car_binding_rows(
     rows: list[CarBindingRow] = []
     for car_key in sorted(car_preset_map.keys(), key=sort_key):
         game_code, car_id = split_car_key(car_key)
+        if not game_code:
+            continue
         if normalized_filter != "ALL" and game_code != normalized_filter:
             continue
 
@@ -80,18 +82,22 @@ def normalize_game_code(game_code: str) -> str:
     code = game_code.strip().upper()
     if code in SUPPORTED_GAME_CODES:
         return code
-    return "FORZA"
+    return ""
 
 
 def car_storage_key(game_code: str, car_id: str) -> str:
-    return f"{normalize_game_code(game_code)}-{car_id.strip()}"
+    normalized_game = normalize_game_code(game_code)
+    normalized_car_id = car_id.strip()
+    if not normalized_game or not normalized_car_id:
+        return ""
+    return f"{normalized_game}-{normalized_car_id}"
 
 
 def split_car_key(car_key: str) -> tuple[str, str]:
     if "-" in car_key:
         raw_game, raw_car_id = car_key.split("-", 1)
         return normalize_game_code(raw_game), raw_car_id.strip()
-    return "FORZA", car_key.strip()
+    return "", car_key.strip()
 
 
 def default_preset_name(
@@ -123,6 +129,10 @@ def normalize_car_preset_maps(
     fallback_preset: str,
 ) -> None:
     for car_key, preset_name in list(car_preset_map.items()):
+        game_code, _car_id = split_car_key(car_key)
+        if not game_code:
+            del car_preset_map[car_key]
+            continue
         if preset_name not in preset_store:
             car_preset_map[car_key] = fallback_preset
 
@@ -139,6 +149,8 @@ def upsert_detected_car(
     default_preset: str,
 ) -> tuple[str, bool]:
     key = car_storage_key(game_code, car_id)
+    if not key:
+        return "", False
     if key not in car_preset_map:
         car_preset_map[key] = default_preset
         return key, True
@@ -254,6 +266,8 @@ def remove_preset_entry(
 
 def format_car_keys(car_keys: list[str]) -> list[str]:
     return [
-        f"{split_car_key(car_key)[0]}-{split_car_key(car_key)[1]}"
+        f"{game_code}-{car_id}"
         for car_key in car_keys
+        for game_code, car_id in [split_car_key(car_key)]
+        if game_code
     ]

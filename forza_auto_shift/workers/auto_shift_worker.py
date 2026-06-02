@@ -103,6 +103,7 @@ class AutoShiftWorker(QObject):
     log = Signal(str)
     status = Signal(str)
     car_detected = Signal(int, str)
+    car_config_requested = Signal(str, int)
     finished = Signal()
 
     def __init__(
@@ -117,8 +118,7 @@ class AutoShiftWorker(QObject):
         shift_up_scan_code: int,
         shift_down_key_name: str,
         shift_up_key_name: str,
-        at_config: AutomaticTransmissionConfig,
-        log_level: str,
+        log_level: str = "INFO",
     ) -> None:
         super().__init__()
         self.bind_host = bind_host
@@ -131,7 +131,8 @@ class AutoShiftWorker(QObject):
         self.shift_up_scan_code = shift_up_scan_code
         self.shift_down_key_name = shift_down_key_name
         self.shift_up_key_name = shift_up_key_name
-        self.at_config = at_config
+        self.at_config: AutomaticTransmissionConfig | None = None
+        self._active_car_key = ""
         self.log_level = log_level
         self._stop_event = threading.Event()
         self._listener: TelemetryListener | None = None
@@ -145,6 +146,9 @@ class AutoShiftWorker(QObject):
         self._relay_thread: threading.Thread | None = None
         self._relay_socket: socket.socket | None = None
         self._relay_dropped_packets = 0
+        self._config_update_queue: queue.Queue[
+            tuple[AutomaticTransmissionConfig, str, str]
+        ] = queue.Queue()
 
     def _log(self, level: str, message: str) -> None:
         current_level = LOG_LEVEL_ORDER.get(self.log_level, LOG_LEVEL_ORDER["INFO"])
@@ -154,6 +158,9 @@ class AutoShiftWorker(QObject):
 
     def _log_at_config(self, context: str) -> None:
         cfg = self.at_config
+        if cfg is None:
+            self._log("INFO", f"AT config ({context}): pending car preset")
+            return
         self._log(
             "INFO",
             (
@@ -199,6 +206,35 @@ class AutoShiftWorker(QObject):
             0.0, (time.perf_counter() - packet_received_at) * 1000.0
         )
         self._emit_status()
+
+    def _drain_config_updates(self) -> AdaptiveAutomaticTransmission | None:
+        latest_update: tuple[AutomaticTransmissionConfig, str, str] | None = None
+        while True:
+            try:
+                latest_update = self._config_update_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        if latest_update is None:
+            return self._at_controller
+
+        config, preset_name, car_key = latest_update
+        if car_key and car_key != self._active_car_key:
+            return self._at_controller
+
+        self.at_config = config
+        if self._at_controller is None:
+            self._at_controller = AdaptiveAutomaticTransmission(config)
+        else:
+            self._at_controller.config = config
+        if preset_name and (car_key or self._active_car_key):
+            active_car_key = car_key or self._active_car_key
+            self._log("INFO", f"Applied preset '{preset_name}' for {active_car_key}.")
+            self._log_at_config(f"car-preset {active_car_key}")
+        else:
+            self._log("INFO", "Applied AT config update while running.")
+            self._log_at_config("runtime-update")
+        return self._at_controller
 
     def _start_relay_dispatcher(self) -> None:
         if not self.relay_enabled or not self.relay_targets:
@@ -301,8 +337,7 @@ class AutoShiftWorker(QObject):
         self._log("INFO", "-" * 80)
         self._start_relay_dispatcher()
 
-        at = AdaptiveAutomaticTransmission(self.at_config)
-        self._at_controller = at
+        self._at_controller = None
         input_controller = GearInputController(
             GearInputConfig(
                 dry_run=self.dry_run,
@@ -315,7 +350,8 @@ class AutoShiftWorker(QObject):
         last_packet_type = ""
         last_packet_time = time.monotonic()
         last_upshift_block_log_time = 0.0
-        last_car_ordinal: int | None = None
+        last_unknown_game_log_time = 0.0
+        last_car_key = ""
 
         try:
             with TelemetryListener(
@@ -329,6 +365,7 @@ class AutoShiftWorker(QObject):
                         raw_data, addr = listener.recv_raw()
                         packet_received_at = time.perf_counter()
                     except socket.timeout:
+                        self._drain_config_updates()
                         self._refresh_focus_state()
                         now = time.monotonic()
                         if (
@@ -382,17 +419,53 @@ class AutoShiftWorker(QObject):
                     if not packet.is_race_on:
                         continue
 
+                    at = self._drain_config_updates()
+
                     raw_car_ordinal = packet.values.get("CarOrdinal")
                     if raw_car_ordinal is not None:
                         car_ordinal = int(raw_car_ordinal)
-                        if car_ordinal > 0 and car_ordinal != last_car_ordinal:
-                            last_car_ordinal = car_ordinal
-                            self.car_detected.emit(
-                                car_ordinal,
-                                detect_game_code_from_process_name(
-                                    _get_foreground_window_title_and_process()[1]
-                                ),
+                        if car_ordinal > 0:
+                            detected_game = detect_game_code_from_process_name(
+                                _get_foreground_window_title_and_process()[1]
                             )
+                            if not detected_game:
+                                now = time.monotonic()
+                                if now - last_unknown_game_log_time >= 2.0:
+                                    self._log(
+                                        "INFO",
+                                        "Telemetry received, waiting for supported Forza game focus.",
+                                    )
+                                    last_unknown_game_log_time = now
+                                last_car_key = ""
+                                self._active_car_key = ""
+                                self.at_config = None
+                                continue
+
+                            car_key = f"{detected_game}-{car_ordinal}"
+                            if car_key != last_car_key:
+                                last_car_key = car_key
+                                self._active_car_key = car_key
+                                self.at_config = None
+                                self._log(
+                                    "INFO",
+                                    f"Requesting AT config for {car_key}.",
+                                )
+                                self.car_config_requested.emit(
+                                    detected_game,
+                                    car_ordinal,
+                                )
+                                self.car_detected.emit(
+                                    car_ordinal,
+                                    detected_game,
+                                )
+
+                    if self.at_config is None:
+                        at = self._drain_config_updates()
+                        if at is None:
+                            continue
+
+                    if at is None:
+                        continue
 
                     action = at.update(packet)
                     reason = at.last_decision_reason or "n/a"
@@ -446,15 +519,13 @@ class AutoShiftWorker(QObject):
             self._emit_status()
             self.finished.emit()
 
-    @Slot(object)
-    def update_at_config(self, config: object) -> None:
+    @Slot(object, str, str)
+    def update_at_config(
+        self, config: object, preset_name: str = "", car_key: str = ""
+    ) -> None:
         if not isinstance(config, AutomaticTransmissionConfig):
             return
-        self.at_config = config
-        if self._at_controller is not None:
-            self._at_controller.config = config
-            self._log("INFO", "Applied AT config update while running.")
-            self._log_at_config("runtime-update")
+        self._config_update_queue.put((config, preset_name, car_key))
 
     def stop(self) -> None:
         self._stop_event.set()

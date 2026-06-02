@@ -96,6 +96,8 @@ def build_app_state_payload(
     cars: dict[str, dict[str, str]] = {}
     for car_key, preset_name in car_preset_map.items():
         game_code, car_id = split_car_key(car_key)
+        if not game_code:
+            continue
         alias = car_alias_map.get(car_key, "").strip()
         cars[car_key] = {
             "preset": preset_name,
@@ -232,6 +234,8 @@ def parse_app_state_payload(
             raise ValueError("Invalid app state: car_id must be a non-empty string")
 
         normalized_key = car_storage_key(game, car_id.strip())
+        if not normalized_key:
+            continue
         car_preset_map[normalized_key] = preset_name
         if alias.strip():
             car_alias_map[normalized_key] = alias.strip()
