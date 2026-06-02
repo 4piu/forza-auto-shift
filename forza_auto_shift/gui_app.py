@@ -25,6 +25,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QIcon, QPalette
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
+    QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -34,6 +35,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -47,6 +49,8 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -99,6 +103,11 @@ LOG_LEVEL_ORDER = {
     "WARN": 30,
     "ERROR": 40,
 }
+CAR_TABLE_GAME_COLUMN = 0
+CAR_TABLE_ID_COLUMN = 1
+CAR_TABLE_ALIAS_COLUMN = 2
+CAR_TABLE_PRESET_COLUMN = 3
+CAR_TABLE_ACTIONS_COLUMN = 4
 MAPVK_VK_TO_VSC = 0
 DEFAULT_CAR_PRESET_NAME = "street"
 AUTO_LANGUAGE_CODE = "auto"
@@ -498,7 +507,6 @@ class MainWindow(QMainWindow):
         self._car_preset_map: dict[str, str] = {}
         self._car_alias_map: dict[str, str] = {}
         self._car_binding_preset_combos: list[QComboBox] = []
-        self._car_binding_alias_buttons: list[QPushButton] = []
         self._car_binding_remove_buttons: list[QPushButton] = []
         self._suppress_car_binding_updates = False
         self._suppress_preset_auto_apply = False
@@ -907,8 +915,40 @@ class MainWindow(QMainWindow):
         car_filter_row.addWidget(self.car_filter_combo)
         car_filter_row.addStretch(1)
         car_group_layout.addLayout(car_filter_row)
-        self.car_binding_rows_layout = QVBoxLayout()
-        car_group_layout.addLayout(self.car_binding_rows_layout)
+        self.car_binding_table = QTableWidget(0, 5)
+        self.car_binding_table.setHorizontalHeaderLabels(
+            [
+                self._t("car.table.game", "Game"),
+                self._t("car.table.id", "ID"),
+                self._t("car.table.alias", "Alias"),
+                self._t("car.table.preset", "Preset"),
+                self._t("car.table.actions", "Actions"),
+            ]
+        )
+        self.car_binding_table.verticalHeader().setVisible(False)
+        self.car_binding_table.setAlternatingRowColors(True)
+        self.car_binding_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.car_binding_table.setMinimumHeight(220)
+        self.car_binding_table.itemChanged.connect(self._on_car_table_item_changed)
+        car_table_header = self.car_binding_table.horizontalHeader()
+        car_table_header.setSectionResizeMode(
+            CAR_TABLE_GAME_COLUMN, QHeaderView.ResizeMode.ResizeToContents
+        )
+        car_table_header.setSectionResizeMode(
+            CAR_TABLE_ID_COLUMN, QHeaderView.ResizeMode.ResizeToContents
+        )
+        car_table_header.setSectionResizeMode(
+            CAR_TABLE_ALIAS_COLUMN, QHeaderView.ResizeMode.Stretch
+        )
+        car_table_header.setSectionResizeMode(
+            CAR_TABLE_PRESET_COLUMN, QHeaderView.ResizeMode.ResizeToContents
+        )
+        car_table_header.setSectionResizeMode(
+            CAR_TABLE_ACTIONS_COLUMN, QHeaderView.ResizeMode.ResizeToContents
+        )
+        car_group_layout.addWidget(self.car_binding_table)
         presets_layout.addWidget(car_group)
         presets_layout.addStretch()
         tabs.addTab(presets_widget, self._t("tabs.presets", "Presets"))
@@ -1193,10 +1233,9 @@ class MainWindow(QMainWindow):
         self.preset_rename_button.setEnabled(enabled and bool(self._active_preset_name))
         self.preset_save_button.setEnabled(enabled and bool(self._active_preset_name))
         self.binding_default_preset_combo.setEnabled(enabled)
+        self.car_binding_table.setEnabled(enabled)
         for combo in self._car_binding_preset_combos:
             combo.setEnabled(enabled)
-        for button in self._car_binding_alias_buttons:
-            button.setEnabled(enabled)
         for button in self._car_binding_remove_buttons:
             button.setEnabled(enabled)
         if enabled:
@@ -1871,29 +1910,19 @@ class MainWindow(QMainWindow):
     def _on_car_filter_changed(self, _value: str) -> None:
         self._refresh_car_preset_list()
 
-    def _clear_layout(self, layout: QVBoxLayout) -> None:
-        while layout.count():
-            item = layout.takeAt(0)
-            if item is None:
-                continue
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-            child_layout = item.layout()
-            if isinstance(child_layout, QVBoxLayout):
-                self._clear_layout(child_layout)
+    def _make_readonly_table_item(self, text: str) -> QTableWidgetItem:
+        item = QTableWidgetItem(text)
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        return item
 
     def _refresh_car_preset_list(self) -> None:
         self._suppress_car_binding_updates = True
         self._car_binding_preset_combos.clear()
-        self._car_binding_alias_buttons.clear()
         self._car_binding_remove_buttons.clear()
-        self._clear_layout(self.car_binding_rows_layout)
+        self.car_binding_table.clearContents()
+        self.car_binding_table.setRowCount(0)
 
         if not self._car_preset_map:
-            empty_label = QLabel(self._t("car.empty.none", "No cars detected yet."))
-            empty_label.setStyleSheet("color: gray;")
-            self.car_binding_rows_layout.addWidget(empty_label)
             self._suppress_car_binding_updates = False
             return
 
@@ -1909,33 +1938,23 @@ class MainWindow(QMainWindow):
             self._car_preset_map[car_key] = preset_name
 
         if not rows:
-            empty_label = QLabel(self._t("car.empty.filter", "No cars in this filter."))
-            empty_label.setStyleSheet("color: gray;")
-            self.car_binding_rows_layout.addWidget(empty_label)
             self._suppress_car_binding_updates = False
             return
 
         preset_names = sorted_preset_names(self._preset_store)
-        for row in rows:
-            row_widget = QWidget()
-            row_layout = QHBoxLayout(row_widget)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(8)
-
-            car_label = QLabel(row.display_name)
-            car_label.setFixedWidth(210)
-            car_label.setToolTip(f"{row.game_code}-{row.car_id}")
-            row_layout.addWidget(car_label)
-
-            alias_button = QPushButton(self._t("button.rename", "Rename"))
-            alias_button.setFixedWidth(80)
-            alias_button.clicked.connect(
-                lambda _checked=False, car_key=row.car_key: self._rename_car_alias(
-                    car_key
-                )
+        self.car_binding_table.setRowCount(len(rows))
+        for table_row, row in enumerate(rows):
+            game_item = self._make_readonly_table_item(row.game_code)
+            id_item = self._make_readonly_table_item(row.car_id)
+            alias_item = QTableWidgetItem(self._car_alias_map.get(row.car_key, ""))
+            alias_item.setData(Qt.ItemDataRole.UserRole, row.car_key)
+            alias_item.setToolTip(
+                self._t("car.table.alias_tooltip", "Edit alias; leave empty to reset")
             )
-            self._car_binding_alias_buttons.append(alias_button)
-            row_layout.addWidget(alias_button)
+
+            self.car_binding_table.setItem(table_row, CAR_TABLE_GAME_COLUMN, game_item)
+            self.car_binding_table.setItem(table_row, CAR_TABLE_ID_COLUMN, id_item)
+            self.car_binding_table.setItem(table_row, CAR_TABLE_ALIAS_COLUMN, alias_item)
 
             preset_combo = QComboBox()
             preset_combo.setFixedWidth(180)
@@ -1948,7 +1967,11 @@ class MainWindow(QMainWindow):
                 )
             )
             self._car_binding_preset_combos.append(preset_combo)
-            row_layout.addWidget(preset_combo)
+            self.car_binding_table.setCellWidget(
+                table_row,
+                CAR_TABLE_PRESET_COLUMN,
+                preset_combo,
+            )
 
             remove_button = QPushButton(self._t("button.delete", "Delete"))
             remove_button.setFixedWidth(80)
@@ -1958,20 +1981,41 @@ class MainWindow(QMainWindow):
                 )
             )
             self._car_binding_remove_buttons.append(remove_button)
-            row_layout.addWidget(remove_button)
-
-            row_layout.addStretch(1)
-            self.car_binding_rows_layout.addWidget(row_widget)
+            self.car_binding_table.setCellWidget(
+                table_row,
+                CAR_TABLE_ACTIONS_COLUMN,
+                remove_button,
+            )
 
         if self._thread is not None:
+            self.car_binding_table.setEnabled(False)
             for combo in self._car_binding_preset_combos:
                 combo.setEnabled(False)
-            for button in self._car_binding_alias_buttons:
-                button.setEnabled(False)
             for button in self._car_binding_remove_buttons:
                 button.setEnabled(False)
 
         self._suppress_car_binding_updates = False
+
+    @Slot(QTableWidgetItem)
+    def _on_car_table_item_changed(self, item: QTableWidgetItem) -> None:
+        if self._suppress_car_binding_updates:
+            return
+        if item.column() != CAR_TABLE_ALIAS_COLUMN:
+            return
+
+        car_key = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(car_key, str) or car_key not in self._car_preset_map:
+            return
+
+        alias = item.text().strip()
+        game_code, car_id = self._split_car_key(car_key)
+        if alias:
+            self._car_alias_map[car_key] = alias
+            self.append_log(f"[INFO] Car {game_code}-{car_id} alias set to '{alias}'.")
+        else:
+            self._car_alias_map.pop(car_key, None)
+            self.append_log(f"[INFO] Car {game_code}-{car_id} alias reset to default.")
+        self._save_app_state()
 
     @Slot(int, str)
     def _on_car_detected(self, car_ordinal: int, game_code: str) -> None:
@@ -2027,33 +2071,6 @@ class MainWindow(QMainWindow):
         self.append_log(
             f"[INFO] Car {game_code}-{car_id} assigned to preset '{preset_name}'."
         )
-
-    @Slot(str)
-    def _rename_car_alias(self, car_key: str) -> None:
-        if car_key not in self._car_preset_map:
-            return
-        game_code, car_id = self._split_car_key(car_key)
-        current_alias = self._car_alias_map.get(car_key, "")
-        alias, ok = QInputDialog.getText(
-            self,
-            self._t("dialog.set_car_alias.title", "Set Car Alias"),
-            self._t(
-                "dialog.set_car_alias.prompt",
-                "Alias for {car} (empty resets):",
-            ).format(car=f"{game_code}-{car_id}"),
-            text=current_alias,
-        )
-        if not ok:
-            return
-        alias = alias.strip()
-        if alias:
-            self._car_alias_map[car_key] = alias
-            self.append_log(f"[INFO] Car {game_code}-{car_id} alias set to '{alias}'.")
-        else:
-            self._car_alias_map.pop(car_key, None)
-            self.append_log(f"[INFO] Car {game_code}-{car_id} alias reset to default.")
-        self._refresh_car_preset_list()
-        self._save_app_state()
 
     @Slot(str)
     def _remove_car_binding(self, car_key: str) -> None:
