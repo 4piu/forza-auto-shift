@@ -33,7 +33,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QDoubleSpinBox,
     QFormLayout,
-    QFrame,
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
@@ -967,17 +966,33 @@ class MainWindow(QMainWindow):
         options_layout.addStretch()
         tabs.addTab(options_widget, self._t("tabs.options", "Options"))
 
+        # ===== LOG TAB =====
+        log_widget = QWidget()
+        log_layout = QVBoxLayout(log_widget)
+        log_actions = QHBoxLayout()
+        self.clear_log_button = QPushButton(self._t("button.clear_log", "Clear Log"))
+        self.clear_log_button.clicked.connect(self._clear_log)
+        log_actions.addWidget(self.clear_log_button)
+        self.save_log_button = QPushButton(self._t("button.save_log", "Save Log"))
+        self.save_log_button.clicked.connect(self._save_log_to_file)
+        log_actions.addWidget(self.save_log_button)
+        log_actions.addStretch(1)
+        log_layout.addLayout(log_actions)
+
+        self.log_view = QPlainTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
+        log_layout.addWidget(self.log_view)
+        tabs.addTab(log_widget, self._t("tabs.log", "Log"))
+
         self._settings_tabs = tabs
         main_layout.addWidget(tabs)
 
         # ===== CONTROLS BAR =====
         controls = QHBoxLayout()
-        self.clear_log_button = QPushButton(self._t("button.clear_log", "Clear Log"))
-        self.clear_log_button.clicked.connect(self._clear_log)
-        controls.addWidget(self.clear_log_button)
-        self.save_log_button = QPushButton(self._t("button.save_log", "Save Log"))
-        self.save_log_button.clicked.connect(self._save_log_to_file)
-        controls.addWidget(self.save_log_button)
         controls.addStretch(1)
         self.hotkey_label = QLabel(
             f"{self._t('hotkey.prefix', 'Hotkey')}: {self._get_hotkey_name()}"
@@ -999,21 +1014,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        # ===== LOG VIEW =====
-        divider = QFrame()
-        divider.setFrameShape(QFrame.HLine)
-        divider.setFrameShadow(QFrame.Sunken)
-        main_layout.addWidget(divider)
-
-        self.log_view = QPlainTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Expanding,
-        )
-        main_layout.addWidget(self.log_view)
-        main_layout.setStretch(0, 3)
-        main_layout.setStretch(3, 2)
+        main_layout.setStretch(0, 1)
 
         self.hotkey_pressed.connect(self._handle_hotkey_press)
         self.hotkey_released.connect(self._handle_hotkey_release)
