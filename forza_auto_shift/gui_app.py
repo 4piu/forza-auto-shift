@@ -47,6 +47,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSplitter,
     QSpinBox,
     QTabWidget,
     QTableWidget,
@@ -486,7 +487,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.resize(1200, 700)
+        self.resize(1100, 650)
+        self.setMinimumSize(760, 480)
 
         self._thread: QThread | None = None
         self._worker: AutoShiftWorker | None = None
@@ -624,11 +626,12 @@ class MainWindow(QMainWindow):
         # ===== TUNING TAB WITH PRESET EDITOR =====
         tuning_widget = QWidget()
         tuning_tab_layout = QHBoxLayout(tuning_widget)
+        tuning_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         preset_editor_group = QGroupBox(self._t("group.preset_editor", "Preset Editor"))
         preset_editor_layout = QVBoxLayout(preset_editor_group)
         self.preset_list = QListWidget()
-        self.preset_list.setMinimumWidth(220)
+        self.preset_list.setMinimumWidth(140)
         self.preset_list.currentTextChanged.connect(self._on_preset_selected)
         preset_editor_layout.addWidget(self.preset_list)
 
@@ -655,7 +658,8 @@ class MainWindow(QMainWindow):
         preset_editor_actions_bottom.addWidget(self.preset_delete_button)
         preset_editor_layout.addLayout(preset_editor_actions_bottom)
 
-        tuning_tab_layout.addWidget(preset_editor_group)
+        preset_editor_group.setMinimumWidth(180)
+        tuning_splitter.addWidget(preset_editor_group)
 
         tuning_fields_widget = QWidget()
         tuning_layout = QVBoxLayout(tuning_fields_widget)
@@ -880,7 +884,12 @@ class MainWindow(QMainWindow):
         tuning_scroll = QScrollArea()
         tuning_scroll.setWidget(tuning_fields_widget)
         tuning_scroll.setWidgetResizable(True)
-        tuning_tab_layout.addWidget(tuning_scroll, 1)
+        tuning_scroll.setMinimumWidth(320)
+        tuning_splitter.addWidget(tuning_scroll)
+        tuning_splitter.setStretchFactor(0, 0)
+        tuning_splitter.setStretchFactor(1, 1)
+        tuning_splitter.setSizes([260, 820])
+        tuning_tab_layout.addWidget(tuning_splitter)
         tabs.addTab(tuning_widget, self._t("tabs.tuning", "Tuning"))
 
         # ===== PRESETS TAB =====
@@ -931,7 +940,7 @@ class MainWindow(QMainWindow):
         self.car_binding_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
         )
-        self.car_binding_table.setMinimumHeight(220)
+        self.car_binding_table.setMinimumHeight(160)
         self.car_binding_table.itemChanged.connect(self._on_car_table_item_changed)
         car_table_header = self.car_binding_table.horizontalHeader()
         car_table_header.setSectionResizeMode(
@@ -950,8 +959,7 @@ class MainWindow(QMainWindow):
             CAR_TABLE_ACTIONS_COLUMN, QHeaderView.ResizeMode.ResizeToContents
         )
         car_group_layout.addWidget(self.car_binding_table)
-        presets_layout.addWidget(car_group)
-        presets_layout.addStretch()
+        presets_layout.addWidget(car_group, 1)
         tabs.addTab(presets_widget, self._t("tabs.presets", "Presets"))
 
         # ===== OPTIONS TAB =====
@@ -1005,7 +1013,10 @@ class MainWindow(QMainWindow):
 
         self._set_relay_ui_enabled(False)
         options_layout.addStretch()
-        tabs.addTab(options_widget, self._t("tabs.options", "Options"))
+        options_scroll = QScrollArea()
+        options_scroll.setWidget(options_widget)
+        options_scroll.setWidgetResizable(True)
+        tabs.addTab(options_scroll, self._t("tabs.options", "Options"))
 
         # ===== LOG TAB =====
         log_widget = QWidget()
@@ -1976,7 +1987,7 @@ class MainWindow(QMainWindow):
             self.car_binding_table.setItem(table_row, CAR_TABLE_ALIAS_COLUMN, alias_item)
 
             preset_combo = QComboBox()
-            preset_combo.setFixedWidth(180)
+            preset_combo.setMinimumWidth(140)
             for preset_name in preset_names:
                 preset_combo.addItem(preset_name)
             preset_combo.setCurrentText(row.preset_name)
@@ -1993,7 +2004,7 @@ class MainWindow(QMainWindow):
             )
 
             remove_button = QPushButton(self._t("button.delete", "Delete"))
-            remove_button.setFixedWidth(80)
+            remove_button.setMinimumWidth(70)
             remove_button.clicked.connect(
                 lambda _checked=False, car_key=row.car_key: self._remove_car_binding(
                     car_key
