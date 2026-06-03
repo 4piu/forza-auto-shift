@@ -26,7 +26,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller is not installed for $pythonExe. Install it with: $pythonExe -m pip install pyinstaller"
 }
 
-$entry = 'run.py'
+$entry = 'main.py'
 $resolvedIconPath = Join-Path $repoRoot $IconPath
 
 $args = @(

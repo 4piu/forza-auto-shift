@@ -31,18 +31,16 @@ This app reads game telemetry, decides shift actions based on tunable rules, and
 ## Requirements
 
 - Windows (recommended; packaging scripts target Windows).
-- Python 3.10+ (currently tested with newer 3.x too).
+- Python version from `.python-version`.
+- `uv` for Python package management.
 - Forza telemetry enabled in-game.
 
-Python dependencies are listed in `requirements.txt`:
+Python dependencies are managed by `uv` using `pyproject.toml` and `uv.lock`.
 
 ## Installation
 
 ```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-python -m pip install -U pip
-python -m pip install -r requirements.txt
+uv sync --locked
 ```
 
 ## Run (Development)
@@ -50,13 +48,13 @@ python -m pip install -r requirements.txt
 Use package entrypoint:
 
 ```powershell
-python -m forza_auto_shift
+uv run python -m forza_auto_shift
 ```
 
 Or the PyInstaller launcher script used for frozen builds:
 
 ```powershell
-python run.py
+uv run python main.py
 ```
 
 ## Forza Telemetry Setup
@@ -94,24 +92,24 @@ This repo includes a build helper script:
 Dry run:
 
 ```powershell
-.\tools\build_pyinstaller.ps1 -Mode onedir -DryRun
+uv run --with pyinstaller powershell -ExecutionPolicy Bypass -File tools/build_pyinstaller.ps1 -Mode onedir -DryRun
 ```
 
 Onedir build (recommended first pass):
 
 ```powershell
-.\tools\build_pyinstaller.ps1 -Mode onedir
+uv run --with pyinstaller powershell -ExecutionPolicy Bypass -File tools/build_pyinstaller.ps1 -Mode onedir
 ```
 
 Onefile build:
 
 ```powershell
-.\tools\build_pyinstaller.ps1 -Mode onefile
+uv run --with pyinstaller powershell -ExecutionPolicy Bypass -File tools/build_pyinstaller.ps1 -Mode onefile
 ```
 
 ### Build script notes
 
-- Uses `run.py` as entrypoint to avoid relative import issues in frozen apps.
+- Uses `main.py` as entrypoint to avoid relative import issues in frozen apps.
 - Bundles `forza_auto_shift/assets` and `forza_auto_shift/i18n`.
 - Uses custom exe icon by default from `forza_auto_shift/assets/icon.ico`.
 - Excludes heavy unused Qt modules to reduce final size.
@@ -119,7 +117,7 @@ Onefile build:
 Override icon path:
 
 ```powershell
-.\tools\build_pyinstaller.ps1 -Mode onefile -IconPath "forza_auto_shift\assets\icon.ico"
+uv run --with pyinstaller powershell -ExecutionPolicy Bypass -File tools/build_pyinstaller.ps1 -Mode onefile -IconPath "forza_auto_shift\assets\icon.ico"
 ```
 
 ## Localization Workflow
@@ -132,12 +130,12 @@ Translation files are in `forza_auto_shift/i18n`:
 Rebuild `.qm` files from `.ts`:
 
 ```powershell
-venv/Scripts/pyside6-lrelease.exe forza_auto_shift/i18n/forza_auto_shift_es.ts -qm forza_auto_shift/i18n/forza_auto_shift_es.qm
-venv/Scripts/pyside6-lrelease.exe forza_auto_shift/i18n/forza_auto_shift_fr.ts -qm forza_auto_shift/i18n/forza_auto_shift_fr.qm
-venv/Scripts/pyside6-lrelease.exe forza_auto_shift/i18n/forza_auto_shift_de.ts -qm forza_auto_shift/i18n/forza_auto_shift_de.qm
-venv/Scripts/pyside6-lrelease.exe forza_auto_shift/i18n/forza_auto_shift_zh_cn.ts -qm forza_auto_shift/i18n/forza_auto_shift_zh_cn.qm
-venv/Scripts/pyside6-lrelease.exe forza_auto_shift/i18n/forza_auto_shift_zh_tw.ts -qm forza_auto_shift/i18n/forza_auto_shift_zh_tw.qm
-venv/Scripts/pyside6-lrelease.exe forza_auto_shift/i18n/forza_auto_shift_ja_jp.ts -qm forza_auto_shift/i18n/forza_auto_shift_ja_jp.qm
+uv run pyside6-lrelease forza_auto_shift/i18n/forza_auto_shift_es.ts -qm forza_auto_shift/i18n/forza_auto_shift_es.qm
+uv run pyside6-lrelease forza_auto_shift/i18n/forza_auto_shift_fr.ts -qm forza_auto_shift/i18n/forza_auto_shift_fr.qm
+uv run pyside6-lrelease forza_auto_shift/i18n/forza_auto_shift_de.ts -qm forza_auto_shift/i18n/forza_auto_shift_de.qm
+uv run pyside6-lrelease forza_auto_shift/i18n/forza_auto_shift_zh_cn.ts -qm forza_auto_shift/i18n/forza_auto_shift_zh_cn.qm
+uv run pyside6-lrelease forza_auto_shift/i18n/forza_auto_shift_zh_tw.ts -qm forza_auto_shift/i18n/forza_auto_shift_zh_tw.qm
+uv run pyside6-lrelease forza_auto_shift/i18n/forza_auto_shift_ja_jp.ts -qm forza_auto_shift/i18n/forza_auto_shift_ja_jp.qm
 ```
 
 ## Tests
@@ -151,14 +149,13 @@ Available tests:
 Run all tests:
 
 ```powershell
-python -m pytest
+uv run --with pytest pytest
 ```
 
-If `pytest` is not installed:
+Or run a single harness directly:
 
 ```powershell
-python -m pip install pytest
-python -m pytest
+uv run python tests/test_transmission_sim.py
 ```
 
 ## License
@@ -170,7 +167,7 @@ python -m pytest
 
 `ImportError: attempted relative import with no known parent package` in packaged app:
 
-- Use the provided PyInstaller script (it builds from `run.py`).
+- Use the provided PyInstaller script (it builds from `main.py`).
 
 UI language changes not fully visible:
 
