@@ -66,6 +66,7 @@ from .auto_transmission import (
 )
 from .input_controller import SC_E, SC_Q
 from .preset_binding_service import (
+    DISABLED_PRESET_NAME,
     build_car_binding_rows,
     car_storage_key,
     cars_assigned_to_preset,
@@ -1231,13 +1232,15 @@ class MainWindow(QMainWindow):
 
     def _resolve_car_at_config(
         self, car_key: str
-    ) -> tuple[AutomaticTransmissionConfig, str]:
+    ) -> tuple[AutomaticTransmissionConfig | None, str]:
         if not car_key:
             raise ValueError("Cannot resolve AT config for an empty car key.")
         default_preset = self._default_preset_name()
         if car_key not in self._car_preset_map:
             self._car_preset_map[car_key] = default_preset
         preset_name = self._car_preset_map.get(car_key, default_preset)
+        if preset_name == DISABLED_PRESET_NAME:
+            return None, DISABLED_PRESET_NAME
         if preset_name not in self._preset_store:
             preset_name = default_preset
             self._car_preset_map[car_key] = preset_name
@@ -1844,7 +1847,7 @@ class MainWindow(QMainWindow):
         if not self._active_preset_name:
             self._active_preset_name = self._default_preset_name()
         if not self._default_binding_preset_name:
-            self._default_binding_preset_name = self._default_preset_name()
+            self._default_binding_preset_name = DISABLED_PRESET_NAME
 
         if not self._state_file_path.exists():
             return
@@ -1857,7 +1860,10 @@ class MainWindow(QMainWindow):
             self._normalize_car_preset_map()
             if self._active_preset_name not in self._preset_store:
                 self._active_preset_name = self._default_preset_name()
-            if self._default_binding_preset_name not in self._preset_store:
+            if (
+                self._default_binding_preset_name != DISABLED_PRESET_NAME
+                and self._default_binding_preset_name not in self._preset_store
+            ):
                 self._default_binding_preset_name = self._default_preset_name()
             self.append_log(f"Loaded app state from {self._state_file_path.name}")
         except (OSError, json.JSONDecodeError) as exc:
@@ -1887,6 +1893,8 @@ class MainWindow(QMainWindow):
         names = sorted_preset_names(self._preset_store)
         for name in names:
             self.preset_list.addItem(name)
+        default_binding_names = [DISABLED_PRESET_NAME, *names]
+        for name in default_binding_names:
             self.binding_default_preset_combo.addItem(name)
         self._active_preset_name = resolve_selected_name(current, names)
         if self._active_preset_name:
@@ -1895,10 +1903,10 @@ class MainWindow(QMainWindow):
 
         self._default_binding_preset_name = resolve_selected_name(
             self._default_binding_preset_name,
-            names,
+            default_binding_names,
         )
         if self._default_binding_preset_name:
-            index = names.index(self._default_binding_preset_name)
+            index = default_binding_names.index(self._default_binding_preset_name)
             self.binding_default_preset_combo.setCurrentIndex(index)
 
         self.preset_list.blockSignals(False)
@@ -1971,7 +1979,14 @@ class MainWindow(QMainWindow):
             self._suppress_car_binding_updates = False
             return
 
-        preset_names = sorted_preset_names(self._preset_store)
+        preset_names = [
+            DISABLED_PRESET_NAME,
+            *[
+                preset_name
+                for preset_name in sorted_preset_names(self._preset_store)
+                if preset_name != DISABLED_PRESET_NAME
+            ],
+        ]
         self.car_binding_table.setRowCount(len(rows))
         for table_row, row in enumerate(rows):
             game_item = self._make_readonly_table_item(row.game_code)
@@ -2101,7 +2116,7 @@ class MainWindow(QMainWindow):
     def _on_car_preset_changed(self, car_key: str, preset_name: str) -> None:
         if self._suppress_car_binding_updates:
             return
-        if preset_name not in self._preset_store:
+        if preset_name != DISABLED_PRESET_NAME and preset_name not in self._preset_store:
             return
         game_code, car_id = self._split_car_key(car_key)
         if not game_code:
@@ -2186,7 +2201,9 @@ class MainWindow(QMainWindow):
     def _on_binding_default_preset_changed(self, name: str) -> None:
         if self._suppress_preset_auto_apply:
             return
-        if not name or name not in self._preset_store:
+        if not name:
+            return
+        if name != DISABLED_PRESET_NAME and name not in self._preset_store:
             return
         self._default_binding_preset_name = name
         self._save_app_state()
@@ -2211,6 +2228,12 @@ class MainWindow(QMainWindow):
         )
         self.shift_down_key_label.setText(self._shift_down_key_name)
         self.shift_up_key_label.setText(self._shift_up_key_name)
+
+    def _reserved_preset_name_message(self, name: str) -> str:
+        return self._t(
+            "dialog.reserved_preset.message",
+            "'{name}' is reserved and cannot be used as a custom preset name.",
+        ).format(name=name)
 
     @Slot()
     def _save_current_as_preset(self) -> None:
@@ -2240,6 +2263,16 @@ class MainWindow(QMainWindow):
                 QMessageBox.StandardButton.Ok,
             )
             self.append_log("[WARN] Preset name cannot be empty.")
+            return
+        if validation_error and "reserved" in validation_error.lower():
+            message = self._reserved_preset_name_message(name)
+            QMessageBox.warning(
+                self,
+                self._t("dialog.reserved_preset.title", "Reserved Preset Name"),
+                message,
+                QMessageBox.StandardButton.Ok,
+            )
+            self.append_log(f"[WARN] {message}")
             return
         if validation_error and "built-in preset" in validation_error.lower():
             QMessageBox.warning(
@@ -2317,6 +2350,9 @@ class MainWindow(QMainWindow):
         if not name:
             self.append_log("[WARN] Preset name cannot be empty.")
             return
+        if name.casefold() == DISABLED_PRESET_NAME.casefold():
+            self.append_log(f"[WARN] {self._reserved_preset_name_message(name)}")
+            return
         if name in self._preset_store:
             self.append_log(f"[WARN] Preset '{name}' already exists.")
             return
@@ -2357,7 +2393,10 @@ class MainWindow(QMainWindow):
         if validation_error == "":
             return
         if validation_error:
-            self.append_log(f"[WARN] {validation_error}")
+            if "reserved" in validation_error.lower():
+                self.append_log(f"[WARN] {self._reserved_preset_name_message(new_name)}")
+            else:
+                self.append_log(f"[WARN] {validation_error}")
             return
         rename_preset_entry(
             preset_store=self._preset_store,

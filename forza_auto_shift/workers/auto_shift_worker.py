@@ -133,6 +133,7 @@ class AutoShiftWorker(QObject):
         self.shift_up_key_name = shift_up_key_name
         self.at_config: AutomaticTransmissionConfig | None = None
         self._active_car_key = ""
+        self._active_car_autoshift_disabled = False
         self.log_level = log_level
         self._stop_event = threading.Event()
         self._listener: TelemetryListener | None = None
@@ -147,7 +148,7 @@ class AutoShiftWorker(QObject):
         self._relay_socket: socket.socket | None = None
         self._relay_dropped_packets = 0
         self._config_update_queue: queue.Queue[
-            tuple[AutomaticTransmissionConfig, str, str]
+            tuple[AutomaticTransmissionConfig | None, str, str]
         ] = queue.Queue()
 
     def _log(self, level: str, message: str) -> None:
@@ -208,7 +209,7 @@ class AutoShiftWorker(QObject):
         self._emit_status()
 
     def _drain_config_updates(self) -> AdaptiveAutomaticTransmission | None:
-        latest_update: tuple[AutomaticTransmissionConfig, str, str] | None = None
+        latest_update: tuple[AutomaticTransmissionConfig | None, str, str] | None = None
         while True:
             try:
                 latest_update = self._config_update_queue.get_nowait()
@@ -222,7 +223,15 @@ class AutoShiftWorker(QObject):
         if car_key and car_key != self._active_car_key:
             return self._at_controller
 
+        if config is None:
+            self.at_config = None
+            self._active_car_autoshift_disabled = True
+            active_car_key = car_key or self._active_car_key
+            self._log("INFO", f"Autoshift disabled for {active_car_key}.")
+            return self._at_controller
+
         self.at_config = config
+        self._active_car_autoshift_disabled = False
         if self._at_controller is None:
             self._at_controller = AdaptiveAutomaticTransmission(config)
         else:
@@ -445,6 +454,7 @@ class AutoShiftWorker(QObject):
                             if car_key != last_car_key:
                                 last_car_key = car_key
                                 self._active_car_key = car_key
+                                self._active_car_autoshift_disabled = False
                                 self.at_config = None
                                 self._log(
                                     "INFO",
@@ -461,8 +471,13 @@ class AutoShiftWorker(QObject):
 
                     if self.at_config is None:
                         at = self._drain_config_updates()
+                        if self._active_car_autoshift_disabled:
+                            continue
                         if at is None:
                             continue
+
+                    if self._active_car_autoshift_disabled:
+                        continue
 
                     if at is None:
                         continue
@@ -523,7 +538,7 @@ class AutoShiftWorker(QObject):
     def update_at_config(
         self, config: object, preset_name: str = "", car_key: str = ""
     ) -> None:
-        if not isinstance(config, AutomaticTransmissionConfig):
+        if config is not None and not isinstance(config, AutomaticTransmissionConfig):
             return
         self._config_update_queue.put((config, preset_name, car_key))
 

@@ -623,6 +623,18 @@
             </translation>
         </message>
         <message>
+            <location filename="../gui_app.py" line="2255" />
+            <source>dialog.reserved_preset.title</source>
+            <comment>Reserved Preset Name</comment>
+            <translation>Nombre de preset reservado</translation>
+        </message>
+        <message>
+            <location filename="../gui_app.py" line="2257" />
+            <source>dialog.reserved_preset.message</source>
+            <comment>'{name}' is reserved and cannot be used as a custom preset name.</comment>
+            <translation>'{name}' esta reservado y no se puede usar como nombre de preset personalizado.</translation>
+        </message>
+        <message>
             <location filename="../gui_app.py" line="2151" />
             <source>dialog.builtin_preset.title</source>
             <comment>Built-in Preset</comment>

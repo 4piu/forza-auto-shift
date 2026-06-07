@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from typing import Callable, Mapping
 
 SUPPORTED_GAME_CODES = {"FH4", "FH5", "FH6", "FM"}
+DISABLED_PRESET_NAME = "Disabled"
+RESERVED_PRESET_NAMES = {DISABLED_PRESET_NAME}
+RESERVED_PRESET_NAMES_NORMALIZED = {
+    preset_name.casefold() for preset_name in RESERVED_PRESET_NAMES
+}
 
 
 @dataclass(frozen=True)
@@ -38,7 +43,7 @@ def build_car_binding_rows(
     selected_filter: str,
 ) -> tuple[list[CarBindingRow], dict[str, str]]:
     normalized_filter = selected_filter.strip().upper() or "ALL"
-    preset_names = set(preset_store.keys())
+    preset_names = set(preset_store.keys()) | RESERVED_PRESET_NAMES
 
     def sort_key(value: str) -> tuple[str, int]:
         game_code, car_id = split_car_key(value)
@@ -108,6 +113,8 @@ def default_preset_name(
     builtin_templates: Mapping[str, dict[str, object]],
     normalize_preset_values: Callable[[dict[str, object] | None], dict[str, object]],
 ) -> str:
+    if default_binding_preset_name in RESERVED_PRESET_NAMES:
+        return default_binding_preset_name
     if default_binding_preset_name in preset_store:
         return default_binding_preset_name
     if default_car_preset_name in preset_store:
@@ -133,7 +140,7 @@ def normalize_car_preset_maps(
         if not game_code:
             del car_preset_map[car_key]
             continue
-        if preset_name not in preset_store:
+        if preset_name not in preset_store and preset_name not in RESERVED_PRESET_NAMES:
             car_preset_map[car_key] = fallback_preset
 
     for car_key in list(car_alias_map.keys()):
@@ -204,6 +211,8 @@ def validate_new_preset_name(
 ) -> str | None:
     if not name:
         return "Preset name cannot be empty."
+    if name.casefold() in RESERVED_PRESET_NAMES_NORMALIZED:
+        return f"'{name}' is reserved and cannot be used as a custom preset name."
     if name.lower() in builtin_templates:
         return f"'{name}' is a built-in preset and cannot be overwritten."
     if name in preset_store:
@@ -224,6 +233,8 @@ def validate_rename_preset(
         return "Built-in presets cannot be renamed."
     if not new_name or new_name == source_name:
         return ""
+    if new_name.casefold() in RESERVED_PRESET_NAMES_NORMALIZED:
+        return f"'{new_name}' is reserved and cannot be used as a custom preset name."
     if new_name in preset_store:
         return f"Preset '{new_name}' already exists."
     return None
