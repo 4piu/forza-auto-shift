@@ -22,8 +22,17 @@ class CarBindingRow:
     preset_name: str
 
 
-def sorted_preset_names(preset_store: Mapping[str, dict[str, object]]) -> list[str]:
-    return sorted(preset_store.keys(), key=str.lower)
+def sorted_preset_names(
+    preset_store: Mapping[str, dict[str, object]],
+    builtin_preset_names: set[str] | None = None,
+) -> list[str]:
+    normalized_builtin_names = {
+        name.casefold() for name in (builtin_preset_names or set())
+    }
+    return sorted(
+        preset_store.keys(),
+        key=lambda name: (name.casefold() in normalized_builtin_names, name.casefold()),
+    )
 
 
 def resolve_selected_name(current: str, names: list[str]) -> str:

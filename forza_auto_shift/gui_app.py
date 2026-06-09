@@ -134,7 +134,12 @@ CAR_TABLE_ALIAS_COLUMN = 2
 CAR_TABLE_PRESET_COLUMN = 3
 CAR_TABLE_ACTIONS_COLUMN = 4
 MAPVK_VK_TO_VSC = 0
-DEFAULT_CAR_PRESET_NAME = "street"
+DEFAULT_CAR_PRESET_NAME = "example-street"
+LEGACY_BUILTIN_PRESET_NAME_MAP = {
+    "street": "example-street",
+    "sports": "example-sports",
+    "race": "example-race",
+}
 AUTO_LANGUAGE_CODE = "auto"
 SUPPORTED_UI_LANGUAGE_CODES = ("en", "es", "fr", "de", "zh_cn", "zh_tw", "ja_jp")
 UI_LANGUAGE_CODES = (AUTO_LANGUAGE_CODE, *SUPPORTED_UI_LANGUAGE_CODES)
@@ -255,7 +260,7 @@ def _preset_with_defaults(overrides: dict[str, object]) -> dict[str, object]:
 
 
 BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, object]] = {
-    "street": {
+    "example-street": {
         **_preset_with_defaults(
             {
                 "upshift_curve": [
@@ -287,7 +292,7 @@ BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, object]] = {
             }
         )
     },
-    "sports": {
+    "example-sports": {
         **_preset_with_defaults(
             {
                 "upshift_curve": [
@@ -319,7 +324,7 @@ BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, object]] = {
             }
         )
     },
-    "race": {
+    "example-race": {
         **_preset_with_defaults(
             {
                 "upshift_curve": [
@@ -2206,6 +2211,21 @@ class MainWindow(QMainWindow):
         )
         return normalized
 
+    def _normalize_legacy_builtin_preset_name(self, preset_name: str) -> str:
+        return LEGACY_BUILTIN_PRESET_NAME_MAP.get(preset_name.casefold(), preset_name)
+
+    def _normalize_legacy_builtin_preset_references(self) -> None:
+        self._active_preset_name = self._normalize_legacy_builtin_preset_name(
+            self._active_preset_name
+        )
+        self._default_binding_preset_name = self._normalize_legacy_builtin_preset_name(
+            self._default_binding_preset_name
+        )
+        self._car_preset_map = {
+            car_key: self._normalize_legacy_builtin_preset_name(preset_name)
+            for car_key, preset_name in self._car_preset_map.items()
+        }
+
     def _collect_full_tuning_values(self) -> dict[str, object]:
         base = self._normalize_preset_values(
             self._preset_store.get(self._active_preset_name)
@@ -2496,6 +2516,7 @@ class MainWindow(QMainWindow):
         try:
             data = load_state_file(self._state_file_path)
             self._apply_app_state(data)
+            self._normalize_legacy_builtin_preset_references()
             for name, template in BUILTIN_PRESET_TEMPLATES.items():
                 self._preset_store[name] = self._normalize_preset_values(template)
             self._normalize_car_preset_map()
@@ -2531,7 +2552,10 @@ class MainWindow(QMainWindow):
         self.binding_default_preset_combo.blockSignals(True)
         self.preset_list.clear()
         self.binding_default_preset_combo.clear()
-        names = sorted_preset_names(self._preset_store)
+        names = sorted_preset_names(
+            self._preset_store,
+            set(BUILTIN_PRESET_TEMPLATES.keys()),
+        )
         for name in names:
             self.preset_list.addItem(name)
         default_binding_names = [DISABLED_PRESET_NAME, *names]
@@ -2624,7 +2648,10 @@ class MainWindow(QMainWindow):
             DISABLED_PRESET_NAME,
             *[
                 preset_name
-                for preset_name in sorted_preset_names(self._preset_store)
+                for preset_name in sorted_preset_names(
+                    self._preset_store,
+                    set(BUILTIN_PRESET_TEMPLATES.keys()),
+                )
                 if preset_name != DISABLED_PRESET_NAME
             ],
         ]
