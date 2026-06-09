@@ -15,14 +15,26 @@ from PySide6.QtCore import (
     QCoreApplication,
     QObject,
     QLocale,
+    QPointF,
+    QRectF,
     Qt,
     QThread,
+    QTimer,
     QTranslator,
     Signal,
     Slot,
     QUrl,
 )
-from PySide6.QtGui import QIcon, QPalette
+from PySide6.QtGui import (
+    QColor,
+    QIcon,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QPalette,
+    QPen,
+    QPolygonF,
+)
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QAbstractItemView,
@@ -49,9 +61,11 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QSpinBox,
+    QStyledItemDelegate,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -63,6 +77,15 @@ except Exception:
 
 from .auto_transmission import (
     AutomaticTransmissionConfig,
+    DEFAULT_DOWNSHIFT_CURVE,
+    DEFAULT_MIN_SHIFT_RPM_GAP,
+    DEFAULT_UPSHIFT_CURVE,
+    ShiftCurvePoint,
+    minimum_shift_curve_gap,
+    minimum_shift_curve_ratio_gap,
+    normalize_shift_curve,
+    serialize_shift_curve,
+    shift_curve_target_rpm,
 )
 from .input_controller import SC_E, SC_Q
 from .preset_binding_service import (
@@ -140,10 +163,9 @@ def _resolve_state_file_path() -> Path:
 
 
 DEFAULT_AT_CONFIG_VALUES: dict[str, object] = {
-    "upshift_rpm_low_throttle": 2800.0,
-    "upshift_rpm_high_throttle": 7000.0,
-    "downshift_rpm_low_throttle": 1100.0,
-    "downshift_rpm_high_throttle": 3600.0,
+    "upshift_curve": DEFAULT_UPSHIFT_CURVE,
+    "downshift_curve": DEFAULT_DOWNSHIFT_CURVE,
+    "min_shift_rpm_gap": DEFAULT_MIN_SHIFT_RPM_GAP,
     "min_time_between_shifts": 0.35,
     "pending_shift_timeout": 0.75,
     "min_forward_gear": 1,
@@ -236,10 +258,16 @@ BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, object]] = {
     "street": {
         **_preset_with_defaults(
             {
-                "upshift_rpm_low_throttle": 2200,
-                "upshift_rpm_high_throttle": 6500,
-                "downshift_rpm_low_throttle": 1050,
-                "downshift_rpm_high_throttle": 2600,
+                "upshift_curve": [
+                    {"throttle": 0.0, "rpm_ratio": 0.21},
+                    {"throttle": 0.45, "rpm_ratio": 0.58},
+                    {"throttle": 1.0, "rpm_ratio": 0.92},
+                ],
+                "downshift_curve": [
+                    {"throttle": 0.0, "rpm_ratio": 0.05},
+                    {"throttle": 0.55, "rpm_ratio": 0.20},
+                    {"throttle": 1.0, "rpm_ratio": 0.28},
+                ],
                 "min_time_between_shifts": 0.50,
                 "enable_per_gear_dwell": True,
                 "dwell_after_upshift_s": 0.35,
@@ -262,10 +290,16 @@ BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, object]] = {
     "sports": {
         **_preset_with_defaults(
             {
-                "upshift_rpm_low_throttle": 2900,
-                "upshift_rpm_high_throttle": 7000,
-                "downshift_rpm_low_throttle": 1200,
-                "downshift_rpm_high_throttle": 3600,
+                "upshift_curve": [
+                    {"throttle": 0.0, "rpm_ratio": 0.33},
+                    {"throttle": 0.45, "rpm_ratio": 0.70},
+                    {"throttle": 1.0, "rpm_ratio": 0.95},
+                ],
+                "downshift_curve": [
+                    {"throttle": 0.0, "rpm_ratio": 0.06},
+                    {"throttle": 0.55, "rpm_ratio": 0.28},
+                    {"throttle": 1.0, "rpm_ratio": 0.46},
+                ],
                 "min_time_between_shifts": 0.35,
                 "enable_per_gear_dwell": True,
                 "dwell_after_upshift_s": 0.25,
@@ -288,10 +322,16 @@ BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, object]] = {
     "race": {
         **_preset_with_defaults(
             {
-                "upshift_rpm_low_throttle": 3300,
-                "upshift_rpm_high_throttle": 7600,
-                "downshift_rpm_low_throttle": 1450,
-                "downshift_rpm_high_throttle": 4300,
+                "upshift_curve": [
+                    {"throttle": 0.0, "rpm_ratio": 0.40},
+                    {"throttle": 0.40, "rpm_ratio": 0.78},
+                    {"throttle": 1.0, "rpm_ratio": 1.00},
+                ],
+                "downshift_curve": [
+                    {"throttle": 0.0, "rpm_ratio": 0.09},
+                    {"throttle": 0.45, "rpm_ratio": 0.36},
+                    {"throttle": 1.0, "rpm_ratio": 0.56},
+                ],
                 "min_time_between_shifts": 0.28,
                 "enable_per_gear_dwell": True,
                 "dwell_after_upshift_s": 0.10,
@@ -384,6 +424,499 @@ class FocusWheelDoubleSpinBox(QDoubleSpinBox):
             super().wheelEvent(event)
         else:
             event.ignore()
+
+
+UPSHIFT_CURVE_COLOR = QColor("#d94848")
+DOWNSHIFT_CURVE_COLOR = QColor("#2d8cff")
+UPSHIFT_CURVE_FILL_COLOR = QColor(217, 72, 72, 45)
+DOWNSHIFT_CURVE_FILL_COLOR = QColor(45, 140, 255, 45)
+
+
+class ShiftCurveChart(QWidget):
+    """Interactive normalized throttle/RPM-ratio curve editor."""
+
+    points_changed = Signal(list)
+
+    def __init__(
+        self,
+        title: str,
+        curve_color: QColor,
+        fill_color: QColor,
+        fill_above: bool = False,
+    ) -> None:
+        super().__init__()
+        self._title = title
+        self._curve_color = curve_color
+        self._fill_color = fill_color
+        self._fill_above = fill_above
+        self._points: list[ShiftCurvePoint] = []
+        self._selected_index = -1
+        self._dragging = False
+        self.setMinimumHeight(150)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMouseTracking(True)
+
+    def points(self) -> list[ShiftCurvePoint]:
+        return [
+            ShiftCurvePoint(point.throttle, point.rpm_ratio)
+            for point in self._points
+        ]
+
+    def set_points(self, points: list[ShiftCurvePoint]) -> None:
+        self._points = sorted(
+            [
+                ShiftCurvePoint(
+                    max(0.0, min(1.0, point.throttle)),
+                    max(0.0, min(1.0, point.rpm_ratio)),
+                )
+                for point in points
+            ],
+            key=lambda point: point.throttle,
+        )
+        if self._points:
+            self._selected_index = max(
+                0,
+                min(self._selected_index, len(self._points) - 1),
+            )
+        else:
+            self._selected_index = -1
+        self.update()
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self._plot_rect()
+        painter.fillRect(self.rect(), self.palette().window())
+        painter.setPen(QPen(QColor("#666666"), 1))
+        painter.drawRect(rect)
+        painter.drawText(8, 18, self._title)
+        painter.drawText(rect.left(), rect.bottom() + 18, "0%")
+        painter.drawText(rect.right() - 28, rect.bottom() + 18, "100%")
+        painter.drawText(rect.left() - 38, rect.top() + 8, "100%")
+        painter.drawText(rect.left() - 28, rect.bottom(), "0%")
+
+        if len(self._points) < 2:
+            return
+
+        path_points = [self._point_to_screen(point, rect) for point in self._points]
+        fill_points: list[QPointF] = []
+        if self._fill_above:
+            fill_points = [
+                QPointF(rect.left(), rect.top()),
+                *path_points,
+                QPointF(rect.right(), rect.top()),
+            ]
+        else:
+            fill_points = [
+                QPointF(rect.left(), rect.bottom()),
+                *path_points,
+                QPointF(rect.right(), rect.bottom()),
+            ]
+        painter.setBrush(self._fill_color)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawPolygon(QPolygonF(fill_points))
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(self._curve_color, 2))
+        for index in range(len(path_points) - 1):
+            painter.drawLine(path_points[index], path_points[index + 1])
+
+        for index, point in enumerate(path_points):
+            is_selected = index == self._selected_index
+            painter.setBrush(QColor("#ffcc33") if is_selected else QColor("#ffffff"))
+            painter.setPen(QPen(self._curve_color, 2))
+            painter.drawEllipse(point, 5 if is_selected else 4, 5 if is_selected else 4)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        index = self._nearest_point_index(event.position())
+        if index >= 0:
+            self._selected_index = index
+            self._dragging = True
+            self.setFocus()
+            self.update()
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
+        if not self._dragging or self._selected_index < 0:
+            return
+        self._move_selected_to(event.position())
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
+        del event
+        self._dragging = False
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
+        if self._selected_index < 0 or not self._points:
+            super().keyPressEvent(event)
+            return
+        throttle_step = 0.10 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 0.01
+        ratio_step = 0.025 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 0.005
+        point = self._points[self._selected_index]
+        key = event.key()
+        if key == Qt.Key.Key_Left:
+            point.throttle -= throttle_step
+        elif key == Qt.Key.Key_Right:
+            point.throttle += throttle_step
+        elif key == Qt.Key.Key_Up:
+            point.rpm_ratio += ratio_step
+        elif key == Qt.Key.Key_Down:
+            point.rpm_ratio -= ratio_step
+        else:
+            super().keyPressEvent(event)
+            return
+        self._replace_selected_point(point)
+
+    def _plot_rect(self) -> QRectF:
+        return QRectF(45, 28, max(80, self.width() - 60), max(60, self.height() - 55))
+
+    def _point_to_screen(self, point: ShiftCurvePoint, rect: QRectF) -> QPointF:
+        return QPointF(
+            rect.left() + (point.throttle * rect.width()),
+            rect.bottom() - (point.rpm_ratio * rect.height()),
+        )
+
+    def _screen_to_point(self, position: QPointF) -> ShiftCurvePoint:
+        rect = self._plot_rect()
+        throttle = (position.x() - rect.left()) / max(1.0, rect.width())
+        ratio = (rect.bottom() - position.y()) / max(1.0, rect.height())
+        return ShiftCurvePoint(
+            max(0.0, min(1.0, throttle)),
+            max(0.0, min(1.0, ratio)),
+        )
+
+    def _nearest_point_index(self, position: QPointF) -> int:
+        rect = self._plot_rect()
+        nearest_index = -1
+        nearest_distance = 14.0
+        for index, point in enumerate(self._points):
+            screen_point = self._point_to_screen(point, rect)
+            distance = (
+                (screen_point.x() - position.x()) ** 2
+                + (screen_point.y() - position.y()) ** 2
+            ) ** 0.5
+            if distance <= nearest_distance:
+                nearest_distance = distance
+                nearest_index = index
+        return nearest_index
+
+    def _move_selected_to(self, position: QPointF) -> None:
+        self._replace_selected_point(self._screen_to_point(position))
+
+    def _replace_selected_point(self, point: ShiftCurvePoint) -> None:
+        if self._selected_index < 0:
+            return
+        self._points[self._selected_index] = ShiftCurvePoint(
+            max(0.0, min(1.0, point.throttle)),
+            max(0.0, min(1.0, point.rpm_ratio)),
+        )
+        selected_point = self._points[self._selected_index]
+        self._points.sort(key=lambda item: item.throttle)
+        self._selected_index = self._points.index(selected_point)
+        self.update()
+        self.points_changed.emit(self.points())
+
+
+class ShiftCurveEditor(QWidget):
+    """Point table plus interactive chart for a single shift curve."""
+
+    points_changed = Signal()
+
+    def __init__(
+        self,
+        title: str,
+        curve_color: QColor,
+        fill_color: QColor,
+        throttle_header: str,
+        rpm_header: str,
+        remove_tooltip: str,
+        fill_above: bool = False,
+    ) -> None:
+        super().__init__()
+        self._suppress_table_updates = False
+        self._remove_tooltip = remove_tooltip
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.chart = ShiftCurveChart(
+            title,
+            curve_color=curve_color,
+            fill_color=fill_color,
+            fill_above=fill_above,
+        )
+        self.chart.points_changed.connect(self._on_chart_points_changed)
+        layout.addWidget(self.chart)
+
+        self.table = QTableWidget(0, 3)
+        self.table.setItemDelegate(OpaqueTableEditDelegate(self.table))
+        self.table.setHorizontalHeaderLabels([throttle_header, rpm_header, ""])
+        self.table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.itemChanged.connect(self._on_table_item_changed)
+        layout.addWidget(self.table)
+
+        actions = QHBoxLayout()
+        self.add_button = QPushButton("+")
+        self.add_button.clicked.connect(self._add_point)
+        actions.addWidget(self.add_button)
+        actions.addStretch()
+        layout.addLayout(actions)
+
+    def points(self) -> list[ShiftCurvePoint]:
+        return self.chart.points()
+
+    def set_points(self, points: list[ShiftCurvePoint]) -> None:
+        self.chart.set_points(points)
+        self._refresh_table(points)
+
+    def set_edit_enabled(self, enabled: bool) -> None:
+        self.chart.setEnabled(enabled)
+        self.table.setEnabled(enabled)
+        self.add_button.setEnabled(enabled)
+
+    def _refresh_table(self, points: list[ShiftCurvePoint]) -> None:
+        self._suppress_table_updates = True
+        try:
+            self.table.setRowCount(0)
+            for point in points:
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                throttle_item = QTableWidgetItem(f"{point.throttle * 100.0:.0f}")
+                ratio_item = QTableWidgetItem(f"{point.rpm_ratio * 100.0:.1f}")
+                self.table.setItem(row, 0, throttle_item)
+                self.table.setItem(row, 1, ratio_item)
+                remove_button = QPushButton("×")
+                remove_button.setMaximumWidth(28)
+                remove_button.setToolTip(self._remove_tooltip)
+                remove_button.setEnabled(
+                    not self._is_endpoint_throttle(point.throttle)
+                )
+                remove_button.clicked.connect(
+                    lambda _checked=False, throttle=point.throttle: self._remove_point_by_throttle(
+                        throttle
+                    )
+                )
+                self.table.setCellWidget(row, 2, remove_button)
+            self._update_table_height()
+        finally:
+            self._suppress_table_updates = False
+
+    def _on_chart_points_changed(self, points: list[ShiftCurvePoint]) -> None:
+        self._refresh_table(points)
+        self.points_changed.emit()
+
+    def _on_table_item_changed(self, item: QTableWidgetItem) -> None:
+        del item
+        if self._suppress_table_updates:
+            return
+        points: list[ShiftCurvePoint] = []
+        has_invalid_value = False
+        for row in range(self.table.rowCount()):
+            try:
+                throttle = float(self.table.item(row, 0).text()) / 100.0
+                ratio = float(self.table.item(row, 1).text()) / 100.0
+            except (AttributeError, TypeError, ValueError):
+                has_invalid_value = True
+                continue
+            points.append(
+                ShiftCurvePoint(
+                    max(0.0, min(1.0, throttle)),
+                    max(0.0, min(1.0, ratio)),
+                )
+            )
+        if has_invalid_value:
+            QTimer.singleShot(0, self._refresh_table_from_chart)
+            return
+        if len(points) >= 2:
+            self.chart.set_points(points)
+            QTimer.singleShot(0, self._refresh_table_from_chart)
+            self.points_changed.emit()
+
+    def _refresh_table_from_chart(self) -> None:
+        self._refresh_table(self.chart.points())
+
+    def _add_point(self) -> None:
+        points = self.points()
+        points.append(ShiftCurvePoint(0.5, 0.5))
+        points.sort(key=lambda point: point.throttle)
+        self.set_points(points)
+        self.points_changed.emit()
+
+    @staticmethod
+    def _is_endpoint_throttle(throttle: float) -> bool:
+        return throttle <= 0.0001 or throttle >= 0.9999
+
+    def _remove_point_by_throttle(self, throttle: float) -> None:
+        if self._is_endpoint_throttle(throttle) or len(self.points()) <= 2:
+            return
+        points = [
+            point
+            for point in self.points()
+            if abs(point.throttle - throttle) > 0.0001
+        ]
+        if len(points) < 2:
+            return
+        self.set_points(points)
+        self.points_changed.emit()
+
+    def _update_table_height(self) -> None:
+        row_height = self.table.verticalHeader().defaultSectionSize()
+        if self.table.rowCount() > 0:
+            row_height = self.table.rowHeight(0)
+        visible_rows = min(float(self.table.rowCount()), 3.5)
+        height = (
+            self.table.horizontalHeader().height()
+            + int(row_height * visible_rows)
+            + (self.table.frameWidth() * 2)
+            + 4
+        )
+        self.table.setFixedHeight(height)
+
+
+class OpaqueTableEditDelegate(QStyledItemDelegate):
+    """Creates opaque table editors so item text does not show behind edits."""
+
+    def createEditor(self, parent, option, index):  # type: ignore[override]
+        editor = super().createEditor(parent, option, index)
+        if editor is not None:
+            editor.setAutoFillBackground(True)
+            palette = editor.palette()
+            background = palette.color(QPalette.ColorRole.Base).name()
+            foreground = palette.color(QPalette.ColorRole.Text).name()
+            editor.setStyleSheet(
+                f"background-color: {background}; color: {foreground};"
+            )
+        return editor
+
+
+class ShiftCurvePreviewChart(QWidget):
+    """Combined RPM preview for upshift/downshift curves."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._upshift_curve: list[ShiftCurvePoint] = []
+        self._downshift_curve: list[ShiftCurvePoint] = []
+        self._idle_rpm = 900.0
+        self._max_rpm = 7000.0
+        self._cursor_throttle: float | None = None
+        self.setMinimumHeight(240)
+        self.setMouseTracking(True)
+
+    def set_preview(
+        self,
+        upshift_curve: list[ShiftCurvePoint],
+        downshift_curve: list[ShiftCurvePoint],
+        idle_rpm: float,
+        max_rpm: float,
+    ) -> None:
+        self._upshift_curve = upshift_curve
+        self._downshift_curve = downshift_curve
+        self._idle_rpm = idle_rpm
+        self._max_rpm = max_rpm
+        self.update()
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(55, 22, max(100, self.width() - 75), max(100, self.height() - 55))
+        painter.fillRect(self.rect(), self.palette().window())
+        painter.setPen(QPen(QColor("#666666"), 1))
+        painter.drawRect(rect)
+        painter.drawText(8, 16, "Preview")
+        painter.drawText(rect.left(), rect.bottom() + 18, "0%")
+        painter.drawText(rect.right() - 30, rect.bottom() + 18, "100%")
+        painter.drawText(4, rect.top() + 8, f"{self._max_rpm:.0f}")
+        painter.drawText(4, rect.bottom(), f"{self._idle_rpm:.0f}")
+        self._draw_curve(painter, rect, self._downshift_curve, DOWNSHIFT_CURVE_COLOR)
+        self._draw_curve(painter, rect, self._upshift_curve, UPSHIFT_CURVE_COLOR)
+        if self._cursor_throttle is not None:
+            x = rect.left() + self._cursor_throttle * rect.width()
+            painter.setPen(QPen(QColor("#ffcc33"), 1))
+            painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        rect = self._plot_rect()
+        self._cursor_throttle = self._throttle_at_position(event.position(), rect)
+        self._show_curve_tooltip(event, self._cursor_throttle)
+        self.update()
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
+        rect = self._plot_rect()
+        hover_throttle = self._throttle_at_position(event.position(), rect)
+        tooltip_throttle = (
+            self._cursor_throttle
+            if self._cursor_throttle is not None
+            else hover_throttle
+        )
+        self._show_curve_tooltip(event, tooltip_throttle)
+
+    def _plot_rect(self) -> QRectF:
+        return QRectF(55, 22, max(100, self.width() - 75), max(100, self.height() - 55))
+
+    @staticmethod
+    def _throttle_at_position(position: QPointF, rect: QRectF) -> float:
+        return max(
+            0.0,
+            min(1.0, (position.x() - rect.left()) / max(1.0, rect.width())),
+        )
+
+    def _show_curve_tooltip(self, event: QMouseEvent, throttle: float) -> None:
+        upshift_rpm = shift_curve_target_rpm(
+            self._upshift_curve,
+            throttle,
+            self._idle_rpm,
+            self._max_rpm,
+        )
+        downshift_rpm = shift_curve_target_rpm(
+            self._downshift_curve,
+            throttle,
+            self._idle_rpm,
+            self._max_rpm,
+        )
+        tooltip = (
+            f"Throttle {throttle * 100.0:.0f}% | Up {upshift_rpm:.0f} RPM | Down {downshift_rpm:.0f} RPM"
+        )
+        self.setToolTip(tooltip)
+        QToolTip.showText(event.globalPosition().toPoint(), tooltip, self)
+
+    def _draw_curve(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+        curve: list[ShiftCurvePoint],
+        color: QColor,
+    ) -> None:
+        if len(curve) < 2 or self._max_rpm <= self._idle_rpm:
+            return
+        painter.setPen(QPen(color, 2))
+        points: list[QPointF] = []
+        for index in range(101):
+            throttle = index / 100.0
+            rpm = shift_curve_target_rpm(
+                curve,
+                throttle,
+                self._idle_rpm,
+                self._max_rpm,
+            )
+            x = rect.left() + throttle * rect.width()
+            y_ratio = (rpm - self._idle_rpm) / (self._max_rpm - self._idle_rpm)
+            y = rect.bottom() - y_ratio * rect.height()
+            points.append(QPointF(x, y))
+        for index in range(len(points) - 1):
+            painter.drawLine(points[index], points[index + 1])
 
 
 class MainWindow(QMainWindow):
@@ -633,7 +1166,7 @@ class MainWindow(QMainWindow):
         preset_editor_layout = QVBoxLayout(preset_editor_group)
         self.preset_list = QListWidget()
         self.preset_list.setMinimumWidth(140)
-        self.preset_list.currentTextChanged.connect(self._on_preset_selected)
+        self.preset_list.currentItemChanged.connect(self._on_preset_selected)
         preset_editor_layout.addWidget(self.preset_list)
 
         preset_editor_actions_top = QHBoxLayout()
@@ -667,41 +1200,72 @@ class MainWindow(QMainWindow):
 
         # RPM Maps group
         rpm_group = CollapsibleBox(
-            self._t("tuning.group.rpm", "RPM Maps"), collapsed=False
+            self._t("tuning.group.rpm", "Shift Curves"), collapsed=False
         )
-        self._set_compact_form(rpm_group.content_layout)
-        self.upshift_low_input = FocusWheelSpinBox()
-        self.upshift_low_input.setRange(500, 12000)
-        self.upshift_low_input.setValue(2800)
-        self._set_compact_numeric_input(self.upshift_low_input)
-        rpm_group.addRow(
-            self._t("tuning.upshift_low", "Upshift RPM (low throttle):"),
-            self.upshift_low_input,
+        curve_layout = QHBoxLayout()
+        curve_editor_layout = QVBoxLayout()
+        self.upshift_curve_editor = ShiftCurveEditor(
+            self._t("tuning.upshift_curve", "Upshift curve"),
+            curve_color=UPSHIFT_CURVE_COLOR,
+            fill_color=UPSHIFT_CURVE_FILL_COLOR,
+            throttle_header=self._t("tuning.curve_table.throttle", "Throttle %"),
+            rpm_header=self._t("tuning.curve_table.rpm", "RPM %"),
+            remove_tooltip=self._t("tuning.curve_table.remove", "Remove point"),
+            fill_above=True,
         )
-        self.upshift_high_input = FocusWheelSpinBox()
-        self.upshift_high_input.setRange(1000, 12000)
-        self.upshift_high_input.setValue(7000)
-        self._set_compact_numeric_input(self.upshift_high_input)
-        rpm_group.addRow(
-            self._t("tuning.upshift_high", "Upshift RPM (high throttle):"),
-            self.upshift_high_input,
+        self.upshift_curve_editor.points_changed.connect(self._refresh_curve_preview)
+        curve_editor_layout.addWidget(self.upshift_curve_editor)
+        self.downshift_curve_editor = ShiftCurveEditor(
+            self._t("tuning.downshift_curve", "Downshift curve"),
+            curve_color=DOWNSHIFT_CURVE_COLOR,
+            fill_color=DOWNSHIFT_CURVE_FILL_COLOR,
+            throttle_header=self._t("tuning.curve_table.throttle", "Throttle %"),
+            rpm_header=self._t("tuning.curve_table.rpm", "RPM %"),
+            remove_tooltip=self._t("tuning.curve_table.remove", "Remove point"),
+            fill_above=False,
         )
-        self.downshift_low_input = FocusWheelSpinBox()
-        self.downshift_low_input.setRange(500, 12000)
-        self.downshift_low_input.setValue(1100)
-        self._set_compact_numeric_input(self.downshift_low_input)
-        rpm_group.addRow(
-            self._t("tuning.downshift_low", "Downshift RPM (low throttle):"),
-            self.downshift_low_input,
+        self.downshift_curve_editor.points_changed.connect(self._refresh_curve_preview)
+        curve_editor_layout.addWidget(self.downshift_curve_editor)
+        curve_layout.addLayout(curve_editor_layout, 3)
+
+        preview_panel = QGroupBox(self._t("tuning.curve_preview", "Preview"))
+        preview_layout = QVBoxLayout(preview_panel)
+        preview_form = QFormLayout()
+        self._set_compact_form(preview_form)
+        self.preview_idle_rpm_input = FocusWheelSpinBox()
+        self.preview_idle_rpm_input.setRange(300, 4000)
+        self.preview_idle_rpm_input.setValue(900)
+        self.preview_idle_rpm_input.valueChanged.connect(self._refresh_curve_preview)
+        self._set_compact_numeric_input(self.preview_idle_rpm_input)
+        preview_form.addRow(
+            self._t("tuning.preview_idle_rpm", "Idle RPM:"),
+            self.preview_idle_rpm_input,
         )
-        self.downshift_high_input = FocusWheelSpinBox()
-        self.downshift_high_input.setRange(500, 12000)
-        self.downshift_high_input.setValue(3600)
-        self._set_compact_numeric_input(self.downshift_high_input)
-        rpm_group.addRow(
-            self._t("tuning.downshift_high", "Downshift RPM (high throttle):"),
-            self.downshift_high_input,
+        self.preview_max_rpm_input = FocusWheelSpinBox()
+        self.preview_max_rpm_input.setRange(1000, 20000)
+        self.preview_max_rpm_input.setValue(7000)
+        self.preview_max_rpm_input.valueChanged.connect(self._refresh_curve_preview)
+        self._set_compact_numeric_input(self.preview_max_rpm_input)
+        preview_form.addRow(
+            self._t("tuning.preview_max_rpm", "Max RPM:"),
+            self.preview_max_rpm_input,
         )
+        self.min_shift_gap_input = FocusWheelSpinBox()
+        self.min_shift_gap_input.setRange(0, 3000)
+        self.min_shift_gap_input.setValue(int(DEFAULT_MIN_SHIFT_RPM_GAP))
+        self.min_shift_gap_input.valueChanged.connect(self._refresh_curve_preview)
+        self._set_compact_numeric_input(self.min_shift_gap_input)
+        preview_form.addRow(
+            self._t("tuning.min_shift_gap", "Minimum gap (RPM):"),
+            self.min_shift_gap_input,
+        )
+        preview_layout.addLayout(preview_form)
+        self.preview_gap_label = QLabel("")
+        preview_layout.addWidget(self.preview_gap_label)
+        self.shift_curve_preview_chart = ShiftCurvePreviewChart()
+        preview_layout.addWidget(self.shift_curve_preview_chart, 1)
+        curve_layout.addWidget(preview_panel, 2)
+        rpm_group.content_layout.addRow(curve_layout)
         tuning_layout.addWidget(rpm_group)
 
         # Cooldown & Basic Shift group
@@ -1172,10 +1736,15 @@ class MainWindow(QMainWindow):
         self, values: dict[str, object]
     ) -> AutomaticTransmissionConfig:
         return AutomaticTransmissionConfig(
-            upshift_rpm_low_throttle=float(values["upshift_rpm_low_throttle"]),
-            upshift_rpm_high_throttle=float(values["upshift_rpm_high_throttle"]),
-            downshift_rpm_low_throttle=float(values["downshift_rpm_low_throttle"]),
-            downshift_rpm_high_throttle=float(values["downshift_rpm_high_throttle"]),
+            upshift_curve=normalize_shift_curve(
+                values.get("upshift_curve"),
+                DEFAULT_UPSHIFT_CURVE,
+            ),
+            downshift_curve=normalize_shift_curve(
+                values.get("downshift_curve"),
+                DEFAULT_DOWNSHIFT_CURVE,
+            ),
+            min_shift_rpm_gap=float(values["min_shift_rpm_gap"]),
             min_time_between_shifts=float(values["min_time_between_shifts"]),
             pending_shift_timeout=float(values["pending_shift_timeout"]),
             min_forward_gear=int(values["min_forward_gear"]),
@@ -1411,10 +1980,9 @@ class MainWindow(QMainWindow):
         self._save_app_state()
 
     def _set_tuning_fields_enabled(self, enabled: bool) -> None:
-        self.upshift_low_input.setEnabled(enabled)
-        self.upshift_high_input.setEnabled(enabled)
-        self.downshift_low_input.setEnabled(enabled)
-        self.downshift_high_input.setEnabled(enabled)
+        self.upshift_curve_editor.set_edit_enabled(enabled)
+        self.downshift_curve_editor.set_edit_enabled(enabled)
+        self.min_shift_gap_input.setEnabled(enabled)
         self.cooldown_input.setEnabled(enabled)
         self.enable_dwell_checkbox.setEnabled(enabled)
         self.dwell_up_input.setEnabled(enabled)
@@ -1519,12 +2087,61 @@ class MainWindow(QMainWindow):
         except Exception:
             return "Unknown"
 
-    def _collect_tuning_values(self) -> dict[str, float | int | bool]:
+    def _refresh_curve_preview(self) -> None:
+        idle_rpm = float(self.preview_idle_rpm_input.value())
+        max_rpm = float(self.preview_max_rpm_input.value())
+        if max_rpm <= idle_rpm:
+            max_rpm = idle_rpm + 1000.0
+        upshift_curve = self.upshift_curve_editor.points()
+        downshift_curve = self.downshift_curve_editor.points()
+        minimum_gap = minimum_shift_curve_gap(
+            upshift_curve,
+            downshift_curve,
+            idle_rpm,
+            max_rpm,
+        )
+        minimum_ratio_gap = minimum_shift_curve_ratio_gap(
+            upshift_curve,
+            downshift_curve,
+        )
+        required_gap = float(self.min_shift_gap_input.value())
+        self.shift_curve_preview_chart.set_preview(
+            upshift_curve,
+            downshift_curve,
+            idle_rpm,
+            max_rpm,
+        )
+        if minimum_ratio_gap <= 0.0:
+            self.preview_gap_label.setText(
+                self._t(
+                    "tuning.curve_intersection_warning",
+                    "Invalid: upshift curve must stay above downshift curve.",
+                )
+            )
+        elif minimum_gap >= required_gap:
+            self.preview_gap_label.setText(
+                self._t(
+                    "tuning.curve_gap_ok",
+                    "Minimum supported gap: {gap:.0f} RPM",
+                ).format(gap=minimum_gap)
+            )
+        else:
+            self.preview_gap_label.setText(
+                self._t(
+                    "tuning.curve_gap_warning",
+                    "Warning: minimum gap is {gap:.0f} RPM, below {required:.0f} RPM.",
+                ).format(gap=minimum_gap, required=required_gap)
+            )
+
+    def _collect_tuning_values(self) -> dict[str, object]:
         return {
-            "upshift_rpm_low_throttle": int(self.upshift_low_input.value()),
-            "upshift_rpm_high_throttle": int(self.upshift_high_input.value()),
-            "downshift_rpm_low_throttle": int(self.downshift_low_input.value()),
-            "downshift_rpm_high_throttle": int(self.downshift_high_input.value()),
+            "upshift_curve": serialize_shift_curve(
+                self.upshift_curve_editor.points()
+            ),
+            "downshift_curve": serialize_shift_curve(
+                self.downshift_curve_editor.points()
+            ),
+            "min_shift_rpm_gap": int(self.min_shift_gap_input.value()),
             "min_time_between_shifts": float(self.cooldown_input.value()),
             "enable_per_gear_dwell": bool(self.enable_dwell_checkbox.isChecked()),
             "dwell_after_upshift_s": float(self.dwell_up_input.value()),
@@ -1554,7 +2171,23 @@ class MainWindow(QMainWindow):
     def _normalize_preset_values(
         self, values: dict[str, object] | None
     ) -> dict[str, object]:
-        return normalize_preset_values(values, DEFAULT_AT_CONFIG_VALUES)
+        normalized = normalize_preset_values(values, DEFAULT_AT_CONFIG_VALUES)
+        normalized["upshift_curve"] = serialize_shift_curve(
+            normalize_shift_curve(
+                normalized.get("upshift_curve"),
+                DEFAULT_UPSHIFT_CURVE,
+            )
+        )
+        normalized["downshift_curve"] = serialize_shift_curve(
+            normalize_shift_curve(
+                normalized.get("downshift_curve"),
+                DEFAULT_DOWNSHIFT_CURVE,
+            )
+        )
+        normalized["min_shift_rpm_gap"] = float(
+            normalized.get("min_shift_rpm_gap", DEFAULT_MIN_SHIFT_RPM_GAP)
+        )
+        return normalized
 
     def _collect_full_tuning_values(self) -> dict[str, object]:
         base = self._normalize_preset_values(
@@ -1575,29 +2208,20 @@ class MainWindow(QMainWindow):
         )
         return payload
 
-    def _apply_tuning_values(self, values: dict[str, float | int | bool]) -> None:
-        self.upshift_low_input.setValue(
-            int(values.get("upshift_rpm_low_throttle", self.upshift_low_input.value()))
+    def _apply_tuning_values(self, values: dict[str, object]) -> None:
+        self.upshift_curve_editor.set_points(
+            normalize_shift_curve(values.get("upshift_curve"), DEFAULT_UPSHIFT_CURVE)
         )
-        self.upshift_high_input.setValue(
-            int(
-                values.get("upshift_rpm_high_throttle", self.upshift_high_input.value())
+        self.downshift_curve_editor.set_points(
+            normalize_shift_curve(
+                values.get("downshift_curve"),
+                DEFAULT_DOWNSHIFT_CURVE,
             )
         )
-        self.downshift_low_input.setValue(
-            int(
-                values.get(
-                    "downshift_rpm_low_throttle", self.downshift_low_input.value()
-                )
-            )
+        self.min_shift_gap_input.setValue(
+            int(values.get("min_shift_rpm_gap", self.min_shift_gap_input.value()))
         )
-        self.downshift_high_input.setValue(
-            int(
-                values.get(
-                    "downshift_rpm_high_throttle", self.downshift_high_input.value()
-                )
-            )
-        )
+        self._refresh_curve_preview()
         self.cooldown_input.setValue(
             float(values.get("min_time_between_shifts", self.cooldown_input.value()))
         )
@@ -2235,6 +2859,74 @@ class MainWindow(QMainWindow):
             "'{name}' is reserved and cannot be used as a custom preset name.",
         ).format(name=name)
 
+    def _curve_intersection_error_message(self) -> str:
+        return self._t(
+            "dialog.curve_intersection.message",
+            "Invalid shift curves: the upshift curve must stay above the downshift curve for every throttle value.",
+        )
+
+    def _validate_current_shift_curves_for_save(self) -> bool:
+        upshift_curve = self.upshift_curve_editor.points()
+        downshift_curve = self.downshift_curve_editor.points()
+        if minimum_shift_curve_ratio_gap(upshift_curve, downshift_curve) > 0.0:
+            return True
+        message = self._curve_intersection_error_message()
+        QMessageBox.warning(
+            self,
+            self._t("dialog.curve_intersection.title", "Invalid Shift Curves"),
+            message,
+            QMessageBox.StandardButton.Ok,
+        )
+        self.append_log(f"[WARN] {message}")
+        return False
+
+    def _warn_if_saved_preset_may_be_incompatible(self, preset_name: str) -> None:
+        affected_cars = cars_assigned_to_preset(
+            car_preset_map=self._car_preset_map,
+            preset_name=preset_name,
+        )
+        if not affected_cars:
+            return
+        idle_rpm = float(self.preview_idle_rpm_input.value())
+        max_rpm = float(self.preview_max_rpm_input.value())
+        if max_rpm <= idle_rpm:
+            return
+        values = self._collect_full_tuning_values()
+        upshift_curve = normalize_shift_curve(
+            values.get("upshift_curve"),
+            DEFAULT_UPSHIFT_CURVE,
+        )
+        downshift_curve = normalize_shift_curve(
+            values.get("downshift_curve"),
+            DEFAULT_DOWNSHIFT_CURVE,
+        )
+        minimum_gap = minimum_shift_curve_gap(
+            upshift_curve,
+            downshift_curve,
+            idle_rpm,
+            max_rpm,
+        )
+        required_gap = float(values.get("min_shift_rpm_gap", DEFAULT_MIN_SHIFT_RPM_GAP))
+        if minimum_gap >= required_gap:
+            return
+        formatted_cars = ", ".join(sorted(format_car_keys(affected_cars)))
+        message = self._t(
+            "dialog.curve_incompatible.message",
+            "Preset '{name}' is assigned to {cars}. With the preview RPM range, the minimum shift-curve gap is {gap:.0f} RPM, below {required:.0f} RPM.",
+        ).format(
+            name=preset_name,
+            cars=formatted_cars,
+            gap=minimum_gap,
+            required=required_gap,
+        )
+        QMessageBox.warning(
+            self,
+            self._t("dialog.curve_incompatible.title", "Shift Curve Warning"),
+            message,
+            QMessageBox.StandardButton.Ok,
+        )
+        self.append_log(f"[WARN] {message}")
+
     @Slot()
     def _save_current_as_preset(self) -> None:
         default_name = self._active_preset_name.strip() or "my-preset"
@@ -2301,6 +2993,8 @@ class MainWindow(QMainWindow):
             if answer == QMessageBox.StandardButton.Ok:
                 self.append_log("[INFO] Preset creation canceled.")
             return
+        if not self._validate_current_shift_curves_for_save():
+            return
         preset_data = self._collect_preset_payload()
         create_or_update_preset(
             preset_store=self._preset_store,
@@ -2322,6 +3016,8 @@ class MainWindow(QMainWindow):
         if name.lower() in BUILTIN_PRESET_TEMPLATES:
             self.append_log("[WARN] Built-in presets cannot be saved/overwritten.")
             return
+        if not self._validate_current_shift_curves_for_save():
+            return
         create_or_update_preset(
             preset_store=self._preset_store,
             name=name,
@@ -2329,6 +3025,7 @@ class MainWindow(QMainWindow):
         )
         self._save_app_state()
         self.append_log(f"[INFO] Saved preset '{name}'.")
+        self._warn_if_saved_preset_may_be_incompatible(name)
         self._emit_current_car_config_if_using_preset(name)
 
     @Slot()
@@ -2435,9 +3132,60 @@ class MainWindow(QMainWindow):
             return
         self._apply_preset_by_name(name)
 
-    @Slot(str)
-    def _on_preset_selected(self, name: str) -> None:
-        self._active_preset_name = name.strip()
+    def _current_editor_has_unsaved_preset_changes(self, preset_name: str) -> bool:
+        if not preset_name or preset_name not in self._preset_store:
+            return False
+        saved_values = self._normalize_preset_values(self._preset_store[preset_name])
+        current_values = self._normalize_preset_values(self._collect_full_tuning_values())
+        return current_values != saved_values
+
+    def _confirm_discard_unsaved_preset_changes(self, preset_name: str) -> bool:
+        if not self._current_editor_has_unsaved_preset_changes(preset_name):
+            return True
+        answer = QMessageBox.question(
+            self,
+            self._t("dialog.unsaved_preset.title", "Unsaved Preset Changes"),
+            self._t(
+                "dialog.unsaved_preset.message",
+                "Preset '{name}' has unsaved changes. Discard them and switch presets?",
+            ).format(name=preset_name),
+            QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return answer == QMessageBox.StandardButton.Discard
+
+    def _restore_selected_preset_item(self, preset_name: str) -> None:
+        self.preset_list.blockSignals(True)
+        try:
+            matches = self.preset_list.findItems(
+                preset_name,
+                Qt.MatchFlag.MatchExactly,
+            )
+            if matches:
+                self.preset_list.setCurrentItem(matches[0])
+            else:
+                self.preset_list.clearSelection()
+        finally:
+            self.preset_list.blockSignals(False)
+
+    @Slot(object, object)
+    def _on_preset_selected(self, current: object, previous: object) -> None:
+        name = current.text().strip() if current is not None else ""
+        previous_name = (
+            previous.text().strip()
+            if previous is not None
+            else self._active_preset_name.strip()
+        )
+        if (
+            not self._suppress_preset_auto_apply
+            and previous_name
+            and name != previous_name
+            and not self._confirm_discard_unsaved_preset_changes(previous_name)
+        ):
+            self._restore_selected_preset_item(previous_name)
+            return
+
+        self._active_preset_name = name
         self._update_preset_delete_button_state()
         if self._suppress_preset_auto_apply:
             return
@@ -2499,32 +3247,23 @@ class MainWindow(QMainWindow):
                 self._emit_current_car_config_if_running()
 
     def _set_tuning_tooltips(self) -> None:
-        self._set_tooltip_with_label(
-            self.upshift_low_input,
+        self.upshift_curve_editor.setToolTip(
             self._t(
-                "tooltip.tuning.upshift_low",
-                "Upshift RPM target at low throttle (gentle driving).",
-            ),
+                "tooltip.tuning.upshift_curve",
+                "Normalized upshift curve. X is throttle, Y is target RPM ratio between idle and max RPM.",
+            )
+        )
+        self.downshift_curve_editor.setToolTip(
+            self._t(
+                "tooltip.tuning.downshift_curve",
+                "Normalized downshift curve. X is throttle/brake demand, Y is target RPM ratio between idle and max RPM.",
+            )
         )
         self._set_tooltip_with_label(
-            self.upshift_high_input,
+            self.min_shift_gap_input,
             self._t(
-                "tooltip.tuning.upshift_high",
-                "Upshift RPM target at high throttle (aggressive driving).",
-            ),
-        )
-        self._set_tooltip_with_label(
-            self.downshift_low_input,
-            self._t(
-                "tooltip.tuning.downshift_low",
-                "Downshift RPM target at low throttle.",
-            ),
-        )
-        self._set_tooltip_with_label(
-            self.downshift_high_input,
-            self._t(
-                "tooltip.tuning.downshift_high",
-                "Downshift RPM target at high throttle or braking load.",
+                "tooltip.tuning.min_shift_gap",
+                "Minimum RPM gap required between upshift and downshift curves.",
             ),
         )
         self._set_tooltip_with_label(

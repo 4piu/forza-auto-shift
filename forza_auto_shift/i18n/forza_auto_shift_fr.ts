@@ -190,8 +190,8 @@
         <message>
             <location filename="../gui_app.py" line="633" />
             <source>tuning.group.rpm</source>
-            <comment>RPM Maps</comment>
-            <translation>Cartes RPM</translation>
+            <comment>Shift Curves</comment>
+            <translation>Courbes de changement</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="641" />
@@ -894,6 +894,111 @@ S'il est supprime, les vehicules concernes seront reassignes a '{default_preset}
             <source>button.recording_hotkey</source>
             <comment>Recording... (ESC to cancel)</comment>
             <translation>Enregistrement... (ECHAP pour annuler)</translation>
+        </message>
+        <message>
+            <source>tuning.upshift_curve</source>
+            <comment>Upshift curve</comment>
+            <translation>Courbe de montee</translation>
+        </message>
+        <message>
+            <source>tuning.downshift_curve</source>
+            <comment>Downshift curve</comment>
+            <translation>Courbe de retrogradage</translation>
+        </message>
+        <message>
+            <source>tuning.curve_preview</source>
+            <comment>Preview</comment>
+            <translation>Apercu</translation>
+        </message>
+        <message>
+            <source>tuning.preview_idle_rpm</source>
+            <comment>Idle RPM:</comment>
+            <translation>Regime ralenti :</translation>
+        </message>
+        <message>
+            <source>tuning.preview_max_rpm</source>
+            <comment>Max RPM:</comment>
+            <translation>Regime max :</translation>
+        </message>
+        <message>
+            <source>tuning.min_shift_gap</source>
+            <comment>Minimum gap (RPM):</comment>
+            <translation>Ecart minimum (RPM) :</translation>
+        </message>
+        <message>
+            <source>tuning.curve_table.throttle</source>
+            <comment>Throttle %</comment>
+            <translation>Accelerateur %</translation>
+        </message>
+        <message>
+            <source>tuning.curve_table.rpm</source>
+            <comment>RPM %</comment>
+            <translation>RPM %</translation>
+        </message>
+        <message>
+            <source>tuning.curve_table.remove</source>
+            <comment>Remove point</comment>
+            <translation>Supprimer le point</translation>
+        </message>
+        <message>
+            <source>tuning.curve_gap_ok</source>
+            <comment>Minimum supported gap: {gap:.0f} RPM</comment>
+            <translation>Ecart minimum pris en charge : {gap:.0f} RPM</translation>
+        </message>
+        <message>
+            <source>tuning.curve_gap_warning</source>
+            <comment>Warning: minimum gap is {gap:.0f} RPM, below {required:.0f} RPM.</comment>
+            <translation>Avertissement : l ecart minimum est de {gap:.0f} RPM, sous {required:.0f} RPM.</translation>
+        </message>
+        <message>
+            <source>tuning.curve_intersection_warning</source>
+            <comment>Invalid: upshift curve must stay above downshift curve.</comment>
+            <translation>Invalide : la courbe de montee doit rester au-dessus de la courbe de retrogradage.</translation>
+        </message>
+        <message>
+            <source>tooltip.tuning.upshift_curve</source>
+            <comment>Normalized upshift curve. X is throttle, Y is target RPM ratio between idle and max RPM.</comment>
+            <translation>Courbe de montee normalisee. X est l accelerateur, Y est le ratio de RPM cible entre ralenti et regime max.</translation>
+        </message>
+        <message>
+            <source>tooltip.tuning.downshift_curve</source>
+            <comment>Normalized downshift curve. X is throttle/brake demand, Y is target RPM ratio between idle and max RPM.</comment>
+            <translation>Courbe de retrogradage normalisee. X est la demande accelerateur/frein, Y est le ratio de RPM cible entre ralenti et regime max.</translation>
+        </message>
+        <message>
+            <source>tooltip.tuning.min_shift_gap</source>
+            <comment>Minimum RPM gap required between upshift and downshift curves.</comment>
+            <translation>Ecart RPM minimum requis entre les courbes de montee et de retrogradage.</translation>
+        </message>
+        <message>
+            <source>dialog.curve_incompatible.title</source>
+            <comment>Shift Curve Warning</comment>
+            <translation>Avertissement de courbe de changement</translation>
+        </message>
+        <message>
+            <source>dialog.curve_incompatible.message</source>
+            <comment>Preset '{name}' is assigned to {cars}. With the preview RPM range, the minimum shift-curve gap is {gap:.0f} RPM, below {required:.0f} RPM.</comment>
+            <translation>Le preset '{name}' est assigne a {cars}. Avec la plage RPM de l apercu, l ecart minimum des courbes est de {gap:.0f} RPM, sous {required:.0f} RPM.</translation>
+        </message>
+        <message>
+            <source>dialog.curve_intersection.title</source>
+            <comment>Invalid Shift Curves</comment>
+            <translation>Courbes de changement invalides</translation>
+        </message>
+        <message>
+            <source>dialog.curve_intersection.message</source>
+            <comment>Invalid shift curves: the upshift curve must stay above the downshift curve for every throttle value.</comment>
+            <translation>Courbes de changement invalides : la courbe de montee doit rester au-dessus de la courbe de retrogradage pour chaque valeur d accelerateur.</translation>
+        </message>
+        <message>
+            <source>dialog.unsaved_preset.title</source>
+            <comment>Unsaved Preset Changes</comment>
+            <translation>Modifications de preset non enregistrees</translation>
+        </message>
+        <message>
+            <source>dialog.unsaved_preset.message</source>
+            <comment>Preset '{name}' has unsaved changes. Discard them and switch presets?</comment>
+            <translation>Le preset '{name}' contient des modifications non enregistrees. Les abandonner et changer de preset ?</translation>
         </message>
     </context>
 </TS>

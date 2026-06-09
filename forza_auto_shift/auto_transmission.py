@@ -7,13 +7,133 @@ import time
 
 from .telemetry import TelemetryPacket
 
+DEFAULT_UPSHIFT_CURVE = [
+    {"throttle": 0.0, "rpm_ratio": 0.35},
+    {"throttle": 1.0, "rpm_ratio": 0.92},
+]
+DEFAULT_DOWNSHIFT_CURVE = [
+    {"throttle": 0.0, "rpm_ratio": 0.05},
+    {"throttle": 1.0, "rpm_ratio": 0.45},
+]
+DEFAULT_MIN_SHIFT_RPM_GAP = 300.0
+
+
+@dataclass(slots=True)
+class ShiftCurvePoint:
+    throttle: float
+    rpm_ratio: float
+
+
+def normalize_shift_curve(
+    raw_points: object,
+    default_points: list[dict[str, float]],
+) -> list[ShiftCurvePoint]:
+    if not isinstance(raw_points, list):
+        raw_points = default_points
+
+    points: list[ShiftCurvePoint] = []
+    for raw_point in raw_points:
+        if not isinstance(raw_point, dict):
+            continue
+        try:
+            throttle = float(raw_point["throttle"])
+            rpm_ratio = float(raw_point["rpm_ratio"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        points.append(
+            ShiftCurvePoint(
+                throttle=max(0.0, min(1.0, throttle)),
+                rpm_ratio=max(0.0, min(1.0, rpm_ratio)),
+            )
+        )
+
+    if len(points) < 2:
+        return normalize_shift_curve(default_points, default_points)
+
+    points.sort(key=lambda point: point.throttle)
+    return points
+
+
+def serialize_shift_curve(points: list[ShiftCurvePoint]) -> list[dict[str, float]]:
+    return [
+        {
+            "throttle": round(max(0.0, min(1.0, point.throttle)), 4),
+            "rpm_ratio": round(max(0.0, min(1.0, point.rpm_ratio)), 4),
+        }
+        for point in sorted(points, key=lambda point: point.throttle)
+    ]
+
+
+def shift_curve_target_rpm(
+    points: list[ShiftCurvePoint],
+    throttle: float,
+    idle_rpm: float,
+    max_rpm: float,
+) -> float:
+    ratio = AdaptiveAutomaticTransmission._interpolate_curve_ratio(points, throttle)
+    return idle_rpm + ((max_rpm - idle_rpm) * ratio)
+
+
+def minimum_shift_curve_gap(
+    upshift_curve: list[ShiftCurvePoint],
+    downshift_curve: list[ShiftCurvePoint],
+    idle_rpm: float,
+    max_rpm: float,
+    samples: int = 101,
+) -> float:
+    if max_rpm <= idle_rpm:
+        return 0.0
+
+    minimum_gap: float | None = None
+    sample_count = max(2, samples)
+    for index in range(sample_count):
+        throttle = index / (sample_count - 1)
+        upshift_rpm = shift_curve_target_rpm(
+            upshift_curve,
+            throttle,
+            idle_rpm,
+            max_rpm,
+        )
+        downshift_rpm = shift_curve_target_rpm(
+            downshift_curve,
+            throttle,
+            idle_rpm,
+            max_rpm,
+        )
+        gap = upshift_rpm - downshift_rpm
+        minimum_gap = gap if minimum_gap is None else min(minimum_gap, gap)
+
+    return minimum_gap if minimum_gap is not None else 0.0
+
+
+def minimum_shift_curve_ratio_gap(
+    upshift_curve: list[ShiftCurvePoint],
+    downshift_curve: list[ShiftCurvePoint],
+    samples: int = 101,
+) -> float:
+    minimum_gap: float | None = None
+    sample_count = max(2, samples)
+    for index in range(sample_count):
+        throttle = index / (sample_count - 1)
+        upshift_ratio = AdaptiveAutomaticTransmission._interpolate_curve_ratio(
+            upshift_curve,
+            throttle,
+        )
+        downshift_ratio = AdaptiveAutomaticTransmission._interpolate_curve_ratio(
+            downshift_curve,
+            throttle,
+        )
+        gap = upshift_ratio - downshift_ratio
+        minimum_gap = gap if minimum_gap is None else min(minimum_gap, gap)
+
+    return minimum_gap if minimum_gap is not None else 0.0
+
 
 @dataclass(slots=True)
 class AutomaticTransmissionConfig:
-    upshift_rpm_low_throttle: float
-    upshift_rpm_high_throttle: float
-    downshift_rpm_low_throttle: float
-    downshift_rpm_high_throttle: float
+    upshift_curve: list[ShiftCurvePoint]
+    downshift_curve: list[ShiftCurvePoint]
+    min_shift_rpm_gap: float
     min_time_between_shifts: float
     pending_shift_timeout: float
     min_forward_gear: int
@@ -114,8 +234,9 @@ class AdaptiveAutomaticTransmission:
         self._last_smoothed_throttle = throttle
         brake = self._normalize_pedal(packet.brake)
         rpm = packet.current_rpm
-        idle_rpm = float(packet.values.get("EngineIdleRpm", rpm))
-        upshift_target_rpm = self._target_upshift_rpm(throttle)
+        idle_rpm = self._safe_idle_rpm(packet, rpm)
+        max_rpm = self._safe_max_rpm(packet, rpm, idle_rpm)
+        upshift_target_rpm = self._target_upshift_rpm(throttle, idle_rpm, max_rpm)
         self.last_upshift_target_rpm = upshift_target_rpm
 
         self._update_unload_upshift_guard(packet=packet, throttle=throttle, now=now)
@@ -170,7 +291,13 @@ class AdaptiveAutomaticTransmission:
 
         if not self._is_upshift_locked_out(now):
             if self._should_upshift(
-                gear=gear, rpm=rpm, speed=speed, throttle=throttle, brake=brake
+                gear=gear,
+                rpm=rpm,
+                speed=speed,
+                throttle=throttle,
+                brake=brake,
+                idle_rpm=idle_rpm,
+                max_rpm=max_rpm,
             ):
                 self._mark_shift(now, shift_kind="upshift")
                 self.last_decision_reason = f"upshift(rpm={rpm:.0f}>={upshift_target_rpm:.0f},thr={throttle:.2f})"
@@ -182,10 +309,12 @@ class AdaptiveAutomaticTransmission:
             speed=speed,
             throttle=throttle,
             brake=brake,
+            idle_rpm=idle_rpm,
+            max_rpm=max_rpm,
         ):
             self._mark_shift(now, shift_kind="downshift")
             demand = max(throttle, brake)
-            self.last_decision_reason = f"map_downshift(rpm={rpm:.0f}<={self._target_downshift_rpm(demand):.0f},thr={throttle:.2f},brk={brake:.2f})"
+            self.last_decision_reason = f"map_downshift(rpm={rpm:.0f}<={self._target_downshift_rpm(demand, idle_rpm, max_rpm):.0f},thr={throttle:.2f},brk={brake:.2f})"
             return "downshift"
 
         if rpm >= upshift_target_rpm and gear >= self.config.min_forward_gear:
@@ -387,22 +516,85 @@ class AdaptiveAutomaticTransmission:
         return self._smoothed_throttle
 
     @staticmethod
+    def _safe_idle_rpm(packet: TelemetryPacket, fallback_rpm: float) -> float:
+        idle_rpm = float(packet.values.get("EngineIdleRpm", fallback_rpm))
+        if idle_rpm <= 0.0:
+            return fallback_rpm
+        return idle_rpm
+
+    @staticmethod
+    def _safe_max_rpm(
+        packet: TelemetryPacket, fallback_rpm: float, idle_rpm: float
+    ) -> float:
+        max_rpm = float(packet.values.get("EngineMaxRpm", max(fallback_rpm, idle_rpm)))
+        if max_rpm <= idle_rpm:
+            return max(fallback_rpm, idle_rpm + 1000.0)
+        return max_rpm
+
+    @staticmethod
     def _lerp(low: float, high: float, t: float) -> float:
         clamped_t = max(0.0, min(1.0, t))
         return low + (high - low) * clamped_t
 
-    def _target_upshift_rpm(self, throttle: float) -> float:
-        return self._lerp(
-            self.config.upshift_rpm_low_throttle,
-            self.config.upshift_rpm_high_throttle,
+    @classmethod
+    def _interpolate_curve_ratio(
+        cls, points: list[ShiftCurvePoint], throttle: float
+    ) -> float:
+        if not points:
+            return 0.0
+
+        clamped_throttle = max(0.0, min(1.0, throttle))
+        sorted_points = sorted(
+            points,
+            key=lambda point: max(0.0, min(1.0, point.throttle)),
+        )
+        first = sorted_points[0]
+        if clamped_throttle <= first.throttle:
+            return max(0.0, min(1.0, first.rpm_ratio))
+
+        previous = first
+        for point in sorted_points[1:]:
+            point_throttle = max(0.0, min(1.0, point.throttle))
+            previous_throttle = max(0.0, min(1.0, previous.throttle))
+            if clamped_throttle <= point_throttle:
+                span = point_throttle - previous_throttle
+                if span <= 0.0:
+                    return max(0.0, min(1.0, point.rpm_ratio))
+                t = (clamped_throttle - previous_throttle) / span
+                ratio = cls._lerp(previous.rpm_ratio, point.rpm_ratio, t)
+                return max(0.0, min(1.0, ratio))
+            previous = point
+
+        return max(0.0, min(1.0, sorted_points[-1].rpm_ratio))
+
+    def _target_rpm_from_curve(
+        self,
+        points: list[ShiftCurvePoint],
+        throttle: float,
+        idle_rpm: float,
+        max_rpm: float,
+    ) -> float:
+        ratio = self._interpolate_curve_ratio(points, throttle)
+        return idle_rpm + ((max_rpm - idle_rpm) * ratio)
+
+    def _target_upshift_rpm(
+        self, throttle: float, idle_rpm: float, max_rpm: float
+    ) -> float:
+        return self._target_rpm_from_curve(
+            self.config.upshift_curve,
             throttle,
+            idle_rpm,
+            max_rpm,
         )
 
-    def _target_downshift_rpm(self, throttle: float) -> float:
-        return self._lerp(
-            self.config.downshift_rpm_low_throttle,
-            self.config.downshift_rpm_high_throttle,
+    def _target_downshift_rpm(
+        self, throttle: float, idle_rpm: float, max_rpm: float
+    ) -> float:
+        return self._target_rpm_from_curve(
+            self.config.downshift_curve,
             throttle,
+            idle_rpm,
+            max_rpm,
         )
 
     def _should_kickdown(
@@ -446,11 +638,13 @@ class AdaptiveAutomaticTransmission:
         speed: float,
         throttle: float,
         brake: float,
+        idle_rpm: float,
+        max_rpm: float,
     ) -> bool:
         if gear <= 0:
             return False
 
-        upshift_rpm = self._target_upshift_rpm(throttle)
+        upshift_rpm = self._target_upshift_rpm(throttle, idle_rpm, max_rpm)
         return (
             gear >= self.config.min_forward_gear
             and gear < self.config.max_forward_gear
@@ -489,6 +683,8 @@ class AdaptiveAutomaticTransmission:
         speed: float,
         throttle: float,
         brake: float,
+        idle_rpm: float,
+        max_rpm: float,
     ) -> bool:
         if gear <= 1:
             return False
@@ -496,7 +692,11 @@ class AdaptiveAutomaticTransmission:
         # Use the stronger of throttle or brake demand so braking raises
         # downshift target RPM and engine braking feels more natural.
         downshift_demand = max(throttle, brake)
-        downshift_rpm = self._target_downshift_rpm(downshift_demand)
+        downshift_rpm = self._target_downshift_rpm(
+            downshift_demand,
+            idle_rpm,
+            max_rpm,
+        )
         return (
             gear > self.config.min_forward_gear
             and speed >= self.config.min_speed_for_downshift_mps

@@ -190,8 +190,8 @@
         <message>
             <location filename="../gui_app.py" line="633" />
             <source>tuning.group.rpm</source>
-            <comment>RPM Maps</comment>
-            <translation>RPM-Maps</translation>
+            <comment>Shift Curves</comment>
+            <translation>Schaltkurven</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="641" />
@@ -894,6 +894,111 @@ Beim Loschen werden betroffene Fahrzeuge '{default_preset}' zugewiesen. Fortfahr
             <source>button.recording_hotkey</source>
             <comment>Recording... (ESC to cancel)</comment>
             <translation>Aufzeichnung... (ESC zum Abbrechen)</translation>
+        </message>
+        <message>
+            <source>tuning.upshift_curve</source>
+            <comment>Upshift curve</comment>
+            <translation>Hochschaltkurve</translation>
+        </message>
+        <message>
+            <source>tuning.downshift_curve</source>
+            <comment>Downshift curve</comment>
+            <translation>Herunterschaltkurve</translation>
+        </message>
+        <message>
+            <source>tuning.curve_preview</source>
+            <comment>Preview</comment>
+            <translation>Vorschau</translation>
+        </message>
+        <message>
+            <source>tuning.preview_idle_rpm</source>
+            <comment>Idle RPM:</comment>
+            <translation>Leerlauf-RPM:</translation>
+        </message>
+        <message>
+            <source>tuning.preview_max_rpm</source>
+            <comment>Max RPM:</comment>
+            <translation>Max. RPM:</translation>
+        </message>
+        <message>
+            <source>tuning.min_shift_gap</source>
+            <comment>Minimum gap (RPM):</comment>
+            <translation>Mindestabstand (RPM):</translation>
+        </message>
+        <message>
+            <source>tuning.curve_table.throttle</source>
+            <comment>Throttle %</comment>
+            <translation>Gas %</translation>
+        </message>
+        <message>
+            <source>tuning.curve_table.rpm</source>
+            <comment>RPM %</comment>
+            <translation>RPM %</translation>
+        </message>
+        <message>
+            <source>tuning.curve_table.remove</source>
+            <comment>Remove point</comment>
+            <translation>Punkt entfernen</translation>
+        </message>
+        <message>
+            <source>tuning.curve_gap_ok</source>
+            <comment>Minimum supported gap: {gap:.0f} RPM</comment>
+            <translation>Minimaler unterstuetzter Abstand: {gap:.0f} RPM</translation>
+        </message>
+        <message>
+            <source>tuning.curve_gap_warning</source>
+            <comment>Warning: minimum gap is {gap:.0f} RPM, below {required:.0f} RPM.</comment>
+            <translation>Warnung: Mindestabstand ist {gap:.0f} RPM, unter {required:.0f} RPM.</translation>
+        </message>
+        <message>
+            <source>tuning.curve_intersection_warning</source>
+            <comment>Invalid: upshift curve must stay above downshift curve.</comment>
+            <translation>Ungueltig: Die Hochschaltkurve muss ueber der Herunterschaltkurve bleiben.</translation>
+        </message>
+        <message>
+            <source>tooltip.tuning.upshift_curve</source>
+            <comment>Normalized upshift curve. X is throttle, Y is target RPM ratio between idle and max RPM.</comment>
+            <translation>Normalisierte Hochschaltkurve. X ist Gas, Y ist das Ziel-RPM-Verhaeltnis zwischen Leerlauf und Maximal-RPM.</translation>
+        </message>
+        <message>
+            <source>tooltip.tuning.downshift_curve</source>
+            <comment>Normalized downshift curve. X is throttle/brake demand, Y is target RPM ratio between idle and max RPM.</comment>
+            <translation>Normalisierte Herunterschaltkurve. X ist Gas-/Bremsanforderung, Y ist das Ziel-RPM-Verhaeltnis zwischen Leerlauf und Maximal-RPM.</translation>
+        </message>
+        <message>
+            <source>tooltip.tuning.min_shift_gap</source>
+            <comment>Minimum RPM gap required between upshift and downshift curves.</comment>
+            <translation>Erforderlicher Mindest-RPM-Abstand zwischen Hoch- und Herunterschaltkurve.</translation>
+        </message>
+        <message>
+            <source>dialog.curve_incompatible.title</source>
+            <comment>Shift Curve Warning</comment>
+            <translation>Schaltkurvenwarnung</translation>
+        </message>
+        <message>
+            <source>dialog.curve_incompatible.message</source>
+            <comment>Preset '{name}' is assigned to {cars}. With the preview RPM range, the minimum shift-curve gap is {gap:.0f} RPM, below {required:.0f} RPM.</comment>
+            <translation>Preset '{name}' ist {cars} zugewiesen. Mit dem Vorschau-RPM-Bereich betraegt der minimale Schaltkurvenabstand {gap:.0f} RPM und liegt unter {required:.0f} RPM.</translation>
+        </message>
+        <message>
+            <source>dialog.curve_intersection.title</source>
+            <comment>Invalid Shift Curves</comment>
+            <translation>Ungueltige Schaltkurven</translation>
+        </message>
+        <message>
+            <source>dialog.curve_intersection.message</source>
+            <comment>Invalid shift curves: the upshift curve must stay above the downshift curve for every throttle value.</comment>
+            <translation>Ungueltige Schaltkurven: Die Hochschaltkurve muss bei jedem Gaswert ueber der Herunterschaltkurve bleiben.</translation>
+        </message>
+        <message>
+            <source>dialog.unsaved_preset.title</source>
+            <comment>Unsaved Preset Changes</comment>
+            <translation>Ungespeicherte Preset-Aenderungen</translation>
+        </message>
+        <message>
+            <source>dialog.unsaved_preset.message</source>
+            <comment>Preset '{name}' has unsaved changes. Discard them and switch presets?</comment>
+            <translation>Preset '{name}' hat ungespeicherte Aenderungen. Verwerfen und Preset wechseln?</translation>
         </message>
     </context>
 </TS>

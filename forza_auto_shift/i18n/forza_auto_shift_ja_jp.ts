@@ -189,8 +189,8 @@
         <message>
             <location filename="../gui_app.py" line="633" />
             <source>tuning.group.rpm</source>
-            <comment>RPM Maps</comment>
-            <translation>RPMマップ</translation>
+            <comment>Shift Curves</comment>
+            <translation>シフト曲線</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="641" />
@@ -613,13 +613,13 @@
             <location filename="../gui_app.py" line="2255" />
             <source>dialog.reserved_preset.title</source>
             <comment>Reserved Preset Name</comment>
-            <translation>??????????</translation>
+            <translation>予約済みプリセット名</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2257" />
             <source>dialog.reserved_preset.message</source>
             <comment>'{name}' is reserved and cannot be used as a custom preset name.</comment>
-            <translation>'{name}' ??????????????????????????????</translation>
+            <translation>'{name}' は予約済みのため、カスタムプリセット名として使用できません。</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2151" />
@@ -856,6 +856,111 @@ If deleted, affected cars will be reassigned to '{default_preset}'. Continue?</c
             <source>button.recording_hotkey</source>
             <comment>Recording... (ESC to cancel)</comment>
             <translation>記録中...（ESCでキャンセル）</translation>
+        </message>
+        <message>
+            <source>tuning.upshift_curve</source>
+            <comment>Upshift curve</comment>
+            <translation>アップシフト曲線</translation>
+        </message>
+        <message>
+            <source>tuning.downshift_curve</source>
+            <comment>Downshift curve</comment>
+            <translation>ダウンシフト曲線</translation>
+        </message>
+        <message>
+            <source>tuning.curve_preview</source>
+            <comment>Preview</comment>
+            <translation>プレビュー</translation>
+        </message>
+        <message>
+            <source>tuning.preview_idle_rpm</source>
+            <comment>Idle RPM:</comment>
+            <translation>アイドル RPM:</translation>
+        </message>
+        <message>
+            <source>tuning.preview_max_rpm</source>
+            <comment>Max RPM:</comment>
+            <translation>最大 RPM:</translation>
+        </message>
+        <message>
+            <source>tuning.min_shift_gap</source>
+            <comment>Minimum gap (RPM):</comment>
+            <translation>最小間隔 (RPM):</translation>
+        </message>
+        <message>
+            <source>tuning.curve_table.throttle</source>
+            <comment>Throttle %</comment>
+            <translation>スロットル %</translation>
+        </message>
+        <message>
+            <source>tuning.curve_table.rpm</source>
+            <comment>RPM %</comment>
+            <translation>RPM %</translation>
+        </message>
+        <message>
+            <source>tuning.curve_table.remove</source>
+            <comment>Remove point</comment>
+            <translation>ポイントを削除</translation>
+        </message>
+        <message>
+            <source>tuning.curve_gap_ok</source>
+            <comment>Minimum supported gap: {gap:.0f} RPM</comment>
+            <translation>対応する最小間隔: {gap:.0f} RPM</translation>
+        </message>
+        <message>
+            <source>tuning.curve_gap_warning</source>
+            <comment>Warning: minimum gap is {gap:.0f} RPM, below {required:.0f} RPM.</comment>
+            <translation>警告: 最小間隔は {gap:.0f} RPM で、{required:.0f} RPM 未満です。</translation>
+        </message>
+        <message>
+            <source>tuning.curve_intersection_warning</source>
+            <comment>Invalid: upshift curve must stay above downshift curve.</comment>
+            <translation>無効: アップシフト曲線は常にダウンシフト曲線より上にある必要があります。</translation>
+        </message>
+        <message>
+            <source>tooltip.tuning.upshift_curve</source>
+            <comment>Normalized upshift curve. X is throttle, Y is target RPM ratio between idle and max RPM.</comment>
+            <translation>正規化されたアップシフト曲線。X はスロットル、Y はアイドルから最大 RPM までの目標 RPM 比率です。</translation>
+        </message>
+        <message>
+            <source>tooltip.tuning.downshift_curve</source>
+            <comment>Normalized downshift curve. X is throttle/brake demand, Y is target RPM ratio between idle and max RPM.</comment>
+            <translation>正規化されたダウンシフト曲線。X はスロットル/ブレーキ要求、Y はアイドルから最大 RPM までの目標 RPM 比率です。</translation>
+        </message>
+        <message>
+            <source>tooltip.tuning.min_shift_gap</source>
+            <comment>Minimum RPM gap required between upshift and downshift curves.</comment>
+            <translation>アップシフト曲線とダウンシフト曲線の間に必要な最小 RPM 間隔です。</translation>
+        </message>
+        <message>
+            <source>dialog.curve_incompatible.title</source>
+            <comment>Shift Curve Warning</comment>
+            <translation>シフト曲線の警告</translation>
+        </message>
+        <message>
+            <source>dialog.curve_incompatible.message</source>
+            <comment>Preset '{name}' is assigned to {cars}. With the preview RPM range, the minimum shift-curve gap is {gap:.0f} RPM, below {required:.0f} RPM.</comment>
+            <translation>プリセット '{name}' は {cars} に割り当てられています。プレビュー RPM 範囲では、シフト曲線の最小間隔は {gap:.0f} RPM で、{required:.0f} RPM 未満です。</translation>
+        </message>
+        <message>
+            <source>dialog.curve_intersection.title</source>
+            <comment>Invalid Shift Curves</comment>
+            <translation>無効なシフト曲線</translation>
+        </message>
+        <message>
+            <source>dialog.curve_intersection.message</source>
+            <comment>Invalid shift curves: the upshift curve must stay above the downshift curve for every throttle value.</comment>
+            <translation>無効なシフト曲線: すべてのスロットル値で、アップシフト曲線はダウンシフト曲線より上にある必要があります。</translation>
+        </message>
+        <message>
+            <source>dialog.unsaved_preset.title</source>
+            <comment>Unsaved Preset Changes</comment>
+            <translation>未保存のプリセット変更</translation>
+        </message>
+        <message>
+            <source>dialog.unsaved_preset.message</source>
+            <comment>Preset '{name}' has unsaved changes. Discard them and switch presets?</comment>
+            <translation>プリセット '{name}' には未保存の変更があります。破棄してプリセットを切り替えますか？</translation>
         </message>
     </context>
 </TS>

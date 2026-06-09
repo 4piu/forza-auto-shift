@@ -14,6 +14,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 from ..auto_transmission import (
     AdaptiveAutomaticTransmission,
     AutomaticTransmissionConfig,
+    minimum_shift_curve_gap,
 )
 from ..input_controller import GearInputConfig, GearInputController
 from ..telemetry import (
@@ -133,6 +134,7 @@ class AutoShiftWorker(QObject):
         self.shift_up_key_name = shift_up_key_name
         self.at_config: AutomaticTransmissionConfig | None = None
         self._active_car_key = ""
+        self._active_preset_name = ""
         self._active_car_autoshift_disabled = False
         self.log_level = log_level
         self._stop_event = threading.Event()
@@ -150,6 +152,9 @@ class AutoShiftWorker(QObject):
         self._config_update_queue: queue.Queue[
             tuple[AutomaticTransmissionConfig | None, str, str]
         ] = queue.Queue()
+        self._latest_idle_rpm: float | None = None
+        self._latest_max_rpm: float | None = None
+        self._last_curve_warning_key = ""
 
     def _log(self, level: str, message: str) -> None:
         current_level = LOG_LEVEL_ORDER.get(self.log_level, LOG_LEVEL_ORDER["INFO"])
@@ -165,14 +170,45 @@ class AutoShiftWorker(QObject):
         self._log(
             "INFO",
             (
-                f"AT config ({context}): up_low={cfg.upshift_rpm_low_throttle:.0f}, "
-                f"up_high={cfg.upshift_rpm_high_throttle:.0f}, "
-                f"down_low={cfg.downshift_rpm_low_throttle:.0f}, "
-                f"down_high={cfg.downshift_rpm_high_throttle:.0f}, "
+                f"AT config ({context}): up_points={len(cfg.upshift_curve)}, "
+                f"down_points={len(cfg.downshift_curve)}, "
+                f"min_gap={cfg.min_shift_rpm_gap:.0f}, "
                 f"kick_thr={cfg.kickdown_throttle_threshold:.2f}, "
                 f"kick_max={cfg.kickdown_max_rpm:.0f}, "
                 f"cooldown={cfg.min_time_between_shifts:.2f}, "
                 f"dwell={cfg.enable_per_gear_dwell}"
+            ),
+        )
+
+    def _warn_if_curve_incompatible(self, preset_name: str, car_key: str) -> None:
+        cfg = self.at_config
+        if cfg is None:
+            return
+        idle_rpm = self._latest_idle_rpm
+        max_rpm = self._latest_max_rpm
+        if idle_rpm is None or max_rpm is None or max_rpm <= idle_rpm:
+            return
+        minimum_gap = minimum_shift_curve_gap(
+            cfg.upshift_curve,
+            cfg.downshift_curve,
+            idle_rpm,
+            max_rpm,
+        )
+        if minimum_gap >= cfg.min_shift_rpm_gap:
+            self._last_curve_warning_key = ""
+            return
+        warning_key = (
+            f"{car_key}:{preset_name}:{idle_rpm:.0f}:{max_rpm:.0f}:{minimum_gap:.0f}"
+        )
+        if warning_key == self._last_curve_warning_key:
+            return
+        self._last_curve_warning_key = warning_key
+        self._log(
+            "WARN",
+            (
+                f"Preset '{preset_name}' may be incompatible with {car_key}: "
+                f"minimum curve gap is {minimum_gap:.0f} RPM "
+                f"for idle={idle_rpm:.0f}, max={max_rpm:.0f}."
             ),
         )
 
@@ -225,12 +261,14 @@ class AutoShiftWorker(QObject):
 
         if config is None:
             self.at_config = None
+            self._active_preset_name = preset_name
             self._active_car_autoshift_disabled = True
             active_car_key = car_key or self._active_car_key
             self._log("INFO", f"Autoshift disabled for {active_car_key}.")
             return self._at_controller
 
         self.at_config = config
+        self._active_preset_name = preset_name
         self._active_car_autoshift_disabled = False
         if self._at_controller is None:
             self._at_controller = AdaptiveAutomaticTransmission(config)
@@ -240,6 +278,7 @@ class AutoShiftWorker(QObject):
             active_car_key = car_key or self._active_car_key
             self._log("INFO", f"Applied preset '{preset_name}' for {active_car_key}.")
             self._log_at_config(f"car-preset {active_car_key}")
+            self._warn_if_curve_incompatible(preset_name, active_car_key)
         else:
             self._log("INFO", "Applied AT config update while running.")
             self._log_at_config("runtime-update")
@@ -428,6 +467,13 @@ class AutoShiftWorker(QObject):
                     if not packet.is_race_on:
                         continue
 
+                    self._latest_idle_rpm = float(
+                        packet.values.get("EngineIdleRpm", packet.current_rpm)
+                    )
+                    self._latest_max_rpm = float(
+                        packet.values.get("EngineMaxRpm", packet.current_rpm)
+                    )
+
                     at = self._drain_config_updates()
 
                     raw_car_ordinal = packet.values.get("CarOrdinal")
@@ -447,6 +493,7 @@ class AutoShiftWorker(QObject):
                                     last_unknown_game_log_time = now
                                 last_car_key = ""
                                 self._active_car_key = ""
+                                self._active_preset_name = ""
                                 self.at_config = None
                                 continue
 
@@ -454,6 +501,7 @@ class AutoShiftWorker(QObject):
                             if car_key != last_car_key:
                                 last_car_key = car_key
                                 self._active_car_key = car_key
+                                self._active_preset_name = ""
                                 self._active_car_autoshift_disabled = False
                                 self.at_config = None
                                 self._log(
@@ -481,6 +529,12 @@ class AutoShiftWorker(QObject):
 
                     if at is None:
                         continue
+
+                    if self._active_preset_name and self._active_car_key:
+                        self._warn_if_curve_incompatible(
+                            self._active_preset_name,
+                            self._active_car_key,
+                        )
 
                     action = at.update(packet)
                     reason = at.last_decision_reason or "n/a"

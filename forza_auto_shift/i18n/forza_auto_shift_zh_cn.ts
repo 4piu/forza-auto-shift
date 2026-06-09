@@ -189,8 +189,8 @@
         <message>
             <location filename="../gui_app.py" line="633" />
             <source>tuning.group.rpm</source>
-            <comment>RPM Maps</comment>
-            <translation>转速图</translation>
+            <comment>Shift Curves</comment>
+            <translation>换挡曲线</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="641" />
@@ -613,13 +613,13 @@
             <location filename="../gui_app.py" line="2255" />
             <source>dialog.reserved_preset.title</source>
             <comment>Reserved Preset Name</comment>
-            <translation>???????</translation>
+            <translation>保留的预设名称</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2257" />
             <source>dialog.reserved_preset.message</source>
             <comment>'{name}' is reserved and cannot be used as a custom preset name.</comment>
-            <translation>'{name}' ??????????????????</translation>
+            <translation>'{name}' 是保留名称，不能用作自定义预设名称。</translation>
         </message>
         <message>
             <location filename="../gui_app.py" line="2151" />
@@ -856,6 +856,111 @@ If deleted, affected cars will be reassigned to '{default_preset}'.Continue ?</c
             <source>button.recording_hotkey</source>
             <comment>Recording... (ESC to cancel)</comment>
             <translation>录制中...（ESC 取消）</translation>
+        </message>
+        <message>
+            <source>tuning.upshift_curve</source>
+            <comment>Upshift curve</comment>
+            <translation>升挡曲线</translation>
+        </message>
+        <message>
+            <source>tuning.downshift_curve</source>
+            <comment>Downshift curve</comment>
+            <translation>降挡曲线</translation>
+        </message>
+        <message>
+            <source>tuning.curve_preview</source>
+            <comment>Preview</comment>
+            <translation>预览</translation>
+        </message>
+        <message>
+            <source>tuning.preview_idle_rpm</source>
+            <comment>Idle RPM:</comment>
+            <translation>怠速 RPM：</translation>
+        </message>
+        <message>
+            <source>tuning.preview_max_rpm</source>
+            <comment>Max RPM:</comment>
+            <translation>最高 RPM：</translation>
+        </message>
+        <message>
+            <source>tuning.min_shift_gap</source>
+            <comment>Minimum gap (RPM):</comment>
+            <translation>最小间隔 (RPM)：</translation>
+        </message>
+        <message>
+            <source>tuning.curve_table.throttle</source>
+            <comment>Throttle %</comment>
+            <translation>油门 %</translation>
+        </message>
+        <message>
+            <source>tuning.curve_table.rpm</source>
+            <comment>RPM %</comment>
+            <translation>RPM %</translation>
+        </message>
+        <message>
+            <source>tuning.curve_table.remove</source>
+            <comment>Remove point</comment>
+            <translation>删除点</translation>
+        </message>
+        <message>
+            <source>tuning.curve_gap_ok</source>
+            <comment>Minimum supported gap: {gap:.0f} RPM</comment>
+            <translation>支持的最小间隔：{gap:.0f} RPM</translation>
+        </message>
+        <message>
+            <source>tuning.curve_gap_warning</source>
+            <comment>Warning: minimum gap is {gap:.0f} RPM, below {required:.0f} RPM.</comment>
+            <translation>警告：最小间隔为 {gap:.0f} RPM，低于 {required:.0f} RPM。</translation>
+        </message>
+        <message>
+            <source>tuning.curve_intersection_warning</source>
+            <comment>Invalid: upshift curve must stay above downshift curve.</comment>
+            <translation>无效：升挡曲线必须始终高于降挡曲线。</translation>
+        </message>
+        <message>
+            <source>tooltip.tuning.upshift_curve</source>
+            <comment>Normalized upshift curve. X is throttle, Y is target RPM ratio between idle and max RPM.</comment>
+            <translation>归一化升挡曲线。X 为油门，Y 为怠速到最高 RPM 之间的目标 RPM 比例。</translation>
+        </message>
+        <message>
+            <source>tooltip.tuning.downshift_curve</source>
+            <comment>Normalized downshift curve. X is throttle/brake demand, Y is target RPM ratio between idle and max RPM.</comment>
+            <translation>归一化降挡曲线。X 为油门/刹车需求，Y 为怠速到最高 RPM 之间的目标 RPM 比例。</translation>
+        </message>
+        <message>
+            <source>tooltip.tuning.min_shift_gap</source>
+            <comment>Minimum RPM gap required between upshift and downshift curves.</comment>
+            <translation>升挡和降挡曲线之间所需的最小 RPM 间隔。</translation>
+        </message>
+        <message>
+            <source>dialog.curve_incompatible.title</source>
+            <comment>Shift Curve Warning</comment>
+            <translation>换挡曲线警告</translation>
+        </message>
+        <message>
+            <source>dialog.curve_incompatible.message</source>
+            <comment>Preset '{name}' is assigned to {cars}. With the preview RPM range, the minimum shift-curve gap is {gap:.0f} RPM, below {required:.0f} RPM.</comment>
+            <translation>预设 '{name}' 已分配给 {cars}。按预览 RPM 范围，换挡曲线最小间隔为 {gap:.0f} RPM，低于 {required:.0f} RPM。</translation>
+        </message>
+        <message>
+            <source>dialog.curve_intersection.title</source>
+            <comment>Invalid Shift Curves</comment>
+            <translation>无效的换挡曲线</translation>
+        </message>
+        <message>
+            <source>dialog.curve_intersection.message</source>
+            <comment>Invalid shift curves: the upshift curve must stay above the downshift curve for every throttle value.</comment>
+            <translation>无效的换挡曲线：升挡曲线必须在每个油门值上都高于降挡曲线。</translation>
+        </message>
+        <message>
+            <source>dialog.unsaved_preset.title</source>
+            <comment>Unsaved Preset Changes</comment>
+            <translation>未保存的预设更改</translation>
+        </message>
+        <message>
+            <source>dialog.unsaved_preset.message</source>
+            <comment>Preset '{name}' has unsaved changes. Discard them and switch presets?</comment>
+            <translation>预设 '{name}' 有未保存的更改。要放弃并切换预设吗？</translation>
         </message>
     </context>
 </TS>
