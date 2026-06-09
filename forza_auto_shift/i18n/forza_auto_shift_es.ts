@@ -1000,5 +1000,80 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <comment>Preset '{name}' has unsaved changes. Discard them and switch presets?</comment>
             <translation>El preset '{name}' tiene cambios sin guardar. Descartarlos y cambiar de preset?</translation>
         </message>
+        <message>
+            <source>button.cancel</source>
+            <comment>Cancel</comment>
+            <translation>Cancelar</translation>
+        </message>
+        <message>
+            <source>button.discard</source>
+            <comment>Discard</comment>
+            <translation>Descartar</translation>
+        </message>
+        <message>
+            <source>button.press_key_cancel</source>
+            <comment>Press key... (ESC cancel)</comment>
+            <translation>Pulsa tecla... (ESC cancela)</translation>
+        </message>
+        <message>
+            <source>car.table.actions</source>
+            <comment>Actions</comment>
+            <translation>Acciones</translation>
+        </message>
+        <message>
+            <source>car.table.alias</source>
+            <comment>Alias</comment>
+            <translation>Alias</translation>
+        </message>
+        <message>
+            <source>car.table.alias_tooltip</source>
+            <comment>Edit alias; leave empty to reset</comment>
+            <translation>Edita el alias; deja vacio para restablecer</translation>
+        </message>
+        <message>
+            <source>car.table.game</source>
+            <comment>Game</comment>
+            <translation>Juego</translation>
+        </message>
+        <message>
+            <source>car.table.id</source>
+            <comment>ID</comment>
+            <translation>ID</translation>
+        </message>
+        <message>
+            <source>car.table.preset</source>
+            <comment>Preset</comment>
+            <translation>Preset</translation>
+        </message>
+        <message>
+            <source>hotkey.prefix</source>
+            <comment>Hotkey</comment>
+            <translation>Atajo</translation>
+        </message>
+        <message>
+            <source>status.prefix</source>
+            <comment>Status</comment>
+            <translation>Estado</translation>
+        </message>
+        <message>
+            <source>tabs.log</source>
+            <comment>Log</comment>
+            <translation>Registro</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.down</source>
+            <comment>Down</comment>
+            <translation>Bajar</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.throttle</source>
+            <comment>Throttle</comment>
+            <translation>Acelerador</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.up</source>
+            <comment>Up</comment>
+            <translation>Subir</translation>
+        </message>
     </context>
 </TS>

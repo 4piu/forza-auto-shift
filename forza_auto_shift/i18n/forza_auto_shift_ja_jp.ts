@@ -962,5 +962,80 @@ If deleted, affected cars will be reassigned to '{default_preset}'. Continue?</c
             <comment>Preset '{name}' has unsaved changes. Discard them and switch presets?</comment>
             <translation>プリセット '{name}' には未保存の変更があります。破棄してプリセットを切り替えますか？</translation>
         </message>
+        <message>
+            <source>button.cancel</source>
+            <comment>Cancel</comment>
+            <translation>キャンセル</translation>
+        </message>
+        <message>
+            <source>button.discard</source>
+            <comment>Discard</comment>
+            <translation>破棄</translation>
+        </message>
+        <message>
+            <source>button.press_key_cancel</source>
+            <comment>Press key... (ESC cancel)</comment>
+            <translation>キーを押して...（ESC でキャンセル）</translation>
+        </message>
+        <message>
+            <source>car.table.actions</source>
+            <comment>Actions</comment>
+            <translation>操作</translation>
+        </message>
+        <message>
+            <source>car.table.alias</source>
+            <comment>Alias</comment>
+            <translation>別名</translation>
+        </message>
+        <message>
+            <source>car.table.alias_tooltip</source>
+            <comment>Edit alias; leave empty to reset</comment>
+            <translation>別名を編集；空にするとリセット</translation>
+        </message>
+        <message>
+            <source>car.table.game</source>
+            <comment>Game</comment>
+            <translation>ゲーム</translation>
+        </message>
+        <message>
+            <source>car.table.id</source>
+            <comment>ID</comment>
+            <translation>ID</translation>
+        </message>
+        <message>
+            <source>car.table.preset</source>
+            <comment>Preset</comment>
+            <translation>プリセット</translation>
+        </message>
+        <message>
+            <source>hotkey.prefix</source>
+            <comment>Hotkey</comment>
+            <translation>ホットキー</translation>
+        </message>
+        <message>
+            <source>status.prefix</source>
+            <comment>Status</comment>
+            <translation>状態</translation>
+        </message>
+        <message>
+            <source>tabs.log</source>
+            <comment>Log</comment>
+            <translation>ログ</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.down</source>
+            <comment>Down</comment>
+            <translation>ダウン</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.throttle</source>
+            <comment>Throttle</comment>
+            <translation>スロットル</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.up</source>
+            <comment>Up</comment>
+            <translation>アップ</translation>
+        </message>
     </context>
 </TS>

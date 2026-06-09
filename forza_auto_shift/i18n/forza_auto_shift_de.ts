@@ -1000,5 +1000,80 @@ Beim Loschen werden betroffene Fahrzeuge '{default_preset}' zugewiesen. Fortfahr
             <comment>Preset '{name}' has unsaved changes. Discard them and switch presets?</comment>
             <translation>Preset '{name}' hat ungespeicherte Aenderungen. Verwerfen und Preset wechseln?</translation>
         </message>
+        <message>
+            <source>button.cancel</source>
+            <comment>Cancel</comment>
+            <translation>Abbrechen</translation>
+        </message>
+        <message>
+            <source>button.discard</source>
+            <comment>Discard</comment>
+            <translation>Verwerfen</translation>
+        </message>
+        <message>
+            <source>button.press_key_cancel</source>
+            <comment>Press key... (ESC cancel)</comment>
+            <translation>Taste druecken... (ESC bricht ab)</translation>
+        </message>
+        <message>
+            <source>car.table.actions</source>
+            <comment>Actions</comment>
+            <translation>Aktionen</translation>
+        </message>
+        <message>
+            <source>car.table.alias</source>
+            <comment>Alias</comment>
+            <translation>Alias</translation>
+        </message>
+        <message>
+            <source>car.table.alias_tooltip</source>
+            <comment>Edit alias; leave empty to reset</comment>
+            <translation>Alias bearbeiten; leer lassen zum Zuruecksetzen</translation>
+        </message>
+        <message>
+            <source>car.table.game</source>
+            <comment>Game</comment>
+            <translation>Spiel</translation>
+        </message>
+        <message>
+            <source>car.table.id</source>
+            <comment>ID</comment>
+            <translation>ID</translation>
+        </message>
+        <message>
+            <source>car.table.preset</source>
+            <comment>Preset</comment>
+            <translation>Preset</translation>
+        </message>
+        <message>
+            <source>hotkey.prefix</source>
+            <comment>Hotkey</comment>
+            <translation>Hotkey</translation>
+        </message>
+        <message>
+            <source>status.prefix</source>
+            <comment>Status</comment>
+            <translation>Status</translation>
+        </message>
+        <message>
+            <source>tabs.log</source>
+            <comment>Log</comment>
+            <translation>Log</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.down</source>
+            <comment>Down</comment>
+            <translation>Runter</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.throttle</source>
+            <comment>Throttle</comment>
+            <translation>Gas</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.up</source>
+            <comment>Up</comment>
+            <translation>Hoch</translation>
+        </message>
     </context>
 </TS>

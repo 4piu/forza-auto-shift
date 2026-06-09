@@ -1000,5 +1000,80 @@ S'il est supprime, les vehicules concernes seront reassignes a '{default_preset}
             <comment>Preset '{name}' has unsaved changes. Discard them and switch presets?</comment>
             <translation>Le preset '{name}' contient des modifications non enregistrees. Les abandonner et changer de preset ?</translation>
         </message>
+        <message>
+            <source>button.cancel</source>
+            <comment>Cancel</comment>
+            <translation>Annuler</translation>
+        </message>
+        <message>
+            <source>button.discard</source>
+            <comment>Discard</comment>
+            <translation>Abandonner</translation>
+        </message>
+        <message>
+            <source>button.press_key_cancel</source>
+            <comment>Press key... (ESC cancel)</comment>
+            <translation>Appuyez sur une touche... (ESC annule)</translation>
+        </message>
+        <message>
+            <source>car.table.actions</source>
+            <comment>Actions</comment>
+            <translation>Actions</translation>
+        </message>
+        <message>
+            <source>car.table.alias</source>
+            <comment>Alias</comment>
+            <translation>Alias</translation>
+        </message>
+        <message>
+            <source>car.table.alias_tooltip</source>
+            <comment>Edit alias; leave empty to reset</comment>
+            <translation>Modifiez l alias ; laissez vide pour reinitialiser</translation>
+        </message>
+        <message>
+            <source>car.table.game</source>
+            <comment>Game</comment>
+            <translation>Jeu</translation>
+        </message>
+        <message>
+            <source>car.table.id</source>
+            <comment>ID</comment>
+            <translation>ID</translation>
+        </message>
+        <message>
+            <source>car.table.preset</source>
+            <comment>Preset</comment>
+            <translation>Preset</translation>
+        </message>
+        <message>
+            <source>hotkey.prefix</source>
+            <comment>Hotkey</comment>
+            <translation>Raccourci</translation>
+        </message>
+        <message>
+            <source>status.prefix</source>
+            <comment>Status</comment>
+            <translation>Etat</translation>
+        </message>
+        <message>
+            <source>tabs.log</source>
+            <comment>Log</comment>
+            <translation>Journal</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.down</source>
+            <comment>Down</comment>
+            <translation>Bas</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.throttle</source>
+            <comment>Throttle</comment>
+            <translation>Accelerateur</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.up</source>
+            <comment>Up</comment>
+            <translation>Haut</translation>
+        </message>
     </context>
 </TS>

@@ -962,5 +962,80 @@ If deleted, affected cars will be reassigned to '{default_preset}'.Continue ?</c
             <comment>Preset '{name}' has unsaved changes. Discard them and switch presets?</comment>
             <translation>预设 '{name}' 有未保存的更改。要放弃并切换预设吗？</translation>
         </message>
+        <message>
+            <source>button.cancel</source>
+            <comment>Cancel</comment>
+            <translation>取消</translation>
+        </message>
+        <message>
+            <source>button.discard</source>
+            <comment>Discard</comment>
+            <translation>放弃</translation>
+        </message>
+        <message>
+            <source>button.press_key_cancel</source>
+            <comment>Press key... (ESC cancel)</comment>
+            <translation>按下按键...（ESC 取消）</translation>
+        </message>
+        <message>
+            <source>car.table.actions</source>
+            <comment>Actions</comment>
+            <translation>操作</translation>
+        </message>
+        <message>
+            <source>car.table.alias</source>
+            <comment>Alias</comment>
+            <translation>别名</translation>
+        </message>
+        <message>
+            <source>car.table.alias_tooltip</source>
+            <comment>Edit alias; leave empty to reset</comment>
+            <translation>编辑别名；留空可重置</translation>
+        </message>
+        <message>
+            <source>car.table.game</source>
+            <comment>Game</comment>
+            <translation>游戏</translation>
+        </message>
+        <message>
+            <source>car.table.id</source>
+            <comment>ID</comment>
+            <translation>ID</translation>
+        </message>
+        <message>
+            <source>car.table.preset</source>
+            <comment>Preset</comment>
+            <translation>预设</translation>
+        </message>
+        <message>
+            <source>hotkey.prefix</source>
+            <comment>Hotkey</comment>
+            <translation>热键</translation>
+        </message>
+        <message>
+            <source>status.prefix</source>
+            <comment>Status</comment>
+            <translation>状态</translation>
+        </message>
+        <message>
+            <source>tabs.log</source>
+            <comment>Log</comment>
+            <translation>日志</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.down</source>
+            <comment>Down</comment>
+            <translation>降挡</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.throttle</source>
+            <comment>Throttle</comment>
+            <translation>油门</translation>
+        </message>
+        <message>
+            <source>tuning.preview.tooltip.up</source>
+            <comment>Up</comment>
+            <translation>升挡</translation>
+        </message>
     </context>
 </TS>

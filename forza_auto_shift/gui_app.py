@@ -802,8 +802,18 @@ class OpaqueTableEditDelegate(QStyledItemDelegate):
 class ShiftCurvePreviewChart(QWidget):
     """Combined RPM preview for upshift/downshift curves."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        title: str,
+        throttle_label: str,
+        upshift_label: str,
+        downshift_label: str,
+    ) -> None:
         super().__init__()
+        self._title = title
+        self._throttle_label = throttle_label
+        self._upshift_label = upshift_label
+        self._downshift_label = downshift_label
         self._upshift_curve: list[ShiftCurvePoint] = []
         self._downshift_curve: list[ShiftCurvePoint] = []
         self._idle_rpm = 900.0
@@ -833,7 +843,7 @@ class ShiftCurvePreviewChart(QWidget):
         painter.fillRect(self.rect(), self.palette().window())
         painter.setPen(QPen(QColor("#666666"), 1))
         painter.drawRect(rect)
-        painter.drawText(8, 16, "Preview")
+        painter.drawText(8, 16, self._title)
         painter.drawText(rect.left(), rect.bottom() + 18, "0%")
         painter.drawText(rect.right() - 30, rect.bottom() + 18, "100%")
         painter.drawText(4, rect.top() + 8, f"{self._max_rpm:.0f}")
@@ -887,7 +897,9 @@ class ShiftCurvePreviewChart(QWidget):
             self._max_rpm,
         )
         tooltip = (
-            f"Throttle {throttle * 100.0:.0f}% | Up {upshift_rpm:.0f} RPM | Down {downshift_rpm:.0f} RPM"
+            f"{self._throttle_label} {throttle * 100.0:.0f}% | "
+            f"{self._upshift_label} {upshift_rpm:.0f} RPM | "
+            f"{self._downshift_label} {downshift_rpm:.0f} RPM"
         )
         self.setToolTip(tooltip)
         QToolTip.showText(event.globalPosition().toPoint(), tooltip, self)
@@ -1262,7 +1274,12 @@ class MainWindow(QMainWindow):
         preview_layout.addLayout(preview_form)
         self.preview_gap_label = QLabel("")
         preview_layout.addWidget(self.preview_gap_label)
-        self.shift_curve_preview_chart = ShiftCurvePreviewChart()
+        self.shift_curve_preview_chart = ShiftCurvePreviewChart(
+            title=self._t("tuning.curve_preview", "Preview"),
+            throttle_label=self._t("tuning.preview.tooltip.throttle", "Throttle"),
+            upshift_label=self._t("tuning.preview.tooltip.up", "Up"),
+            downshift_label=self._t("tuning.preview.tooltip.down", "Down"),
+        )
         preview_layout.addWidget(self.shift_curve_preview_chart, 1)
         curve_layout.addWidget(preview_panel, 2)
         rpm_group.content_layout.addRow(curve_layout)
@@ -3142,17 +3159,28 @@ class MainWindow(QMainWindow):
     def _confirm_discard_unsaved_preset_changes(self, preset_name: str) -> bool:
         if not self._current_editor_has_unsaved_preset_changes(preset_name):
             return True
-        answer = QMessageBox.question(
-            self,
-            self._t("dialog.unsaved_preset.title", "Unsaved Preset Changes"),
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        dialog.setWindowTitle(
+            self._t("dialog.unsaved_preset.title", "Unsaved Preset Changes")
+        )
+        dialog.setText(
             self._t(
                 "dialog.unsaved_preset.message",
                 "Preset '{name}' has unsaved changes. Discard them and switch presets?",
-            ).format(name=preset_name),
-            QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
+            ).format(name=preset_name)
         )
-        return answer == QMessageBox.StandardButton.Discard
+        discard_button = dialog.addButton(
+            self._t("button.discard", "Discard"),
+            QMessageBox.ButtonRole.DestructiveRole,
+        )
+        cancel_button = dialog.addButton(
+            self._t("button.cancel", "Cancel"),
+            QMessageBox.ButtonRole.RejectRole,
+        )
+        dialog.setDefaultButton(cancel_button)
+        dialog.exec()
+        return dialog.clickedButton() == discard_button
 
     def _restore_selected_preset_item(self, preset_name: str) -> None:
         self.preset_list.blockSignals(True)
@@ -3415,7 +3443,9 @@ class MainWindow(QMainWindow):
             return
         self._currently_pressed_keys.clear()
         self._recording_shift_key_target = "down"
-        self.record_shift_down_button.setText("Press key... (ESC cancel)")
+        self.record_shift_down_button.setText(
+            self._t("button.press_key_cancel", "Press key... (ESC cancel)")
+        )
         self.record_shift_down_button.setEnabled(False)
         self.record_shift_up_button.setEnabled(False)
         self.append_log("Recording shift down key (single key, ESC to cancel)...")
@@ -3426,7 +3456,9 @@ class MainWindow(QMainWindow):
             return
         self._currently_pressed_keys.clear()
         self._recording_shift_key_target = "up"
-        self.record_shift_up_button.setText("Press key... (ESC cancel)")
+        self.record_shift_up_button.setText(
+            self._t("button.press_key_cancel", "Press key... (ESC cancel)")
+        )
         self.record_shift_up_button.setEnabled(False)
         self.record_shift_down_button.setEnabled(False)
         self.append_log("Recording shift up key (single key, ESC to cancel)...")
@@ -3482,8 +3514,12 @@ class MainWindow(QMainWindow):
 
     def _finish_shift_key_recording(self) -> None:
         self._recording_shift_key_target = None
-        self.record_shift_down_button.setText("Bind Down Key")
-        self.record_shift_up_button.setText("Bind Up Key")
+        self.record_shift_down_button.setText(
+            self._t("button.bind_down_key", "Bind Down Key")
+        )
+        self.record_shift_up_button.setText(
+            self._t("button.bind_up_key", "Bind Up Key")
+        )
         self.record_shift_down_button.setEnabled(True)
         self.record_shift_up_button.setEnabled(True)
 
