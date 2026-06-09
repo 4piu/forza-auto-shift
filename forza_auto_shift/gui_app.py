@@ -264,9 +264,9 @@ BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, object]] = {
         **_preset_with_defaults(
             {
                 "upshift_curve": [
-                    {"throttle": 0.0, "rpm_ratio": 0.21},
-                    {"throttle": 0.45, "rpm_ratio": 0.58},
-                    {"throttle": 1.0, "rpm_ratio": 0.92},
+                    {"throttle": 0.0, "rpm_ratio": 0.20},
+                    {"throttle": 0.45, "rpm_ratio": 0.52},
+                    {"throttle": 1.0, "rpm_ratio": 0.80},
                 ],
                 "downshift_curve": [
                     {"throttle": 0.0, "rpm_ratio": 0.05},
@@ -296,9 +296,9 @@ BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, object]] = {
         **_preset_with_defaults(
             {
                 "upshift_curve": [
-                    {"throttle": 0.0, "rpm_ratio": 0.33},
-                    {"throttle": 0.45, "rpm_ratio": 0.70},
-                    {"throttle": 1.0, "rpm_ratio": 0.95},
+                    {"throttle": 0.0, "rpm_ratio": 0.30},
+                    {"throttle": 0.45, "rpm_ratio": 0.62},
+                    {"throttle": 1.0, "rpm_ratio": 0.86},
                 ],
                 "downshift_curve": [
                     {"throttle": 0.0, "rpm_ratio": 0.06},
@@ -328,9 +328,9 @@ BUILTIN_PRESET_TEMPLATES: dict[str, dict[str, object]] = {
         **_preset_with_defaults(
             {
                 "upshift_curve": [
-                    {"throttle": 0.0, "rpm_ratio": 0.40},
-                    {"throttle": 0.40, "rpm_ratio": 0.78},
-                    {"throttle": 1.0, "rpm_ratio": 1.00},
+                    {"throttle": 0.0, "rpm_ratio": 0.36},
+                    {"throttle": 0.40, "rpm_ratio": 0.70},
+                    {"throttle": 1.0, "rpm_ratio": 0.94},
                 ],
                 "downshift_curve": [
                     {"throttle": 0.0, "rpm_ratio": 0.09},
