@@ -1075,5 +1075,10 @@ Beim Loschen werden betroffene Fahrzeuge '{default_preset}' zugewiesen. Fortfahr
             <comment>Up</comment>
             <translation>Hoch</translation>
         </message>
+        <message>
+            <source>button.stopping</source>
+            <comment>Stopping...</comment>
+            <translation>Stoppt...</translation>
+        </message>
     </context>
 </TS>

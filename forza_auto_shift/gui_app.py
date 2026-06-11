@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import faulthandler
 import sys
 import time
 import ctypes
 import json
 import os
+import threading
+import traceback
+from ctypes import wintypes
 from pathlib import Path
 
 from pynput import keyboard
@@ -28,6 +32,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QColor,
     QIcon,
+    QKeySequence,
     QKeyEvent,
     QMouseEvent,
     QPainter,
@@ -134,6 +139,12 @@ CAR_TABLE_ALIAS_COLUMN = 2
 CAR_TABLE_PRESET_COLUMN = 3
 CAR_TABLE_ACTIONS_COLUMN = 4
 MAPVK_VK_TO_VSC = 0
+WM_HOTKEY = 0x0312
+MOD_ALT = 0x0001
+MOD_CONTROL = 0x0002
+MOD_SHIFT = 0x0004
+MOD_NOREPEAT = 0x4000
+GLOBAL_HOTKEY_ID = 1
 DEFAULT_CAR_PRESET_NAME = "example-street"
 LEGACY_BUILTIN_PRESET_NAME_MAP = {
     "street": "example-street",
@@ -145,6 +156,19 @@ SUPPORTED_UI_LANGUAGE_CODES = ("en", "es", "fr", "de", "zh_cn", "zh_tw", "ja_jp"
 UI_LANGUAGE_CODES = (AUTO_LANGUAGE_CODE, *SUPPORTED_UI_LANGUAGE_CODES)
 APP_STATE_DIR_NAME = "ForzaAutoShift"
 PORTABLE_MARKER_FILE = "portable"
+_CRASH_LOG_HANDLE = None
+user32 = ctypes.WinDLL("user32", use_last_error=True)
+user32.RegisterHotKey.argtypes = (
+    wintypes.HWND,
+    ctypes.c_int,
+    wintypes.UINT,
+    wintypes.UINT,
+)
+user32.RegisterHotKey.restype = wintypes.BOOL
+user32.UnregisterHotKey.argtypes = (wintypes.HWND, ctypes.c_int)
+user32.UnregisterHotKey.restype = wintypes.BOOL
+user32.MapVirtualKeyW.argtypes = (wintypes.UINT, wintypes.UINT)
+user32.MapVirtualKeyW.restype = wintypes.UINT
 
 
 def _resolve_executable_dir() -> Path:
@@ -165,6 +189,60 @@ def _resolve_state_file_path() -> Path:
         Path(local_app_data) if local_app_data else (Path.home() / "AppData" / "Local")
     )
     return base_dir / APP_STATE_DIR_NAME / APP_STATE_FILE_NAME
+
+
+def _install_crash_diagnostics() -> None:
+    global _CRASH_LOG_HANDLE
+    crash_log_path = _resolve_state_file_path().with_name(
+        "forza_auto_shift_crash.log"
+    )
+    try:
+        crash_log_path.parent.mkdir(parents=True, exist_ok=True)
+        _CRASH_LOG_HANDLE = crash_log_path.open(
+            "a",
+            encoding="utf-8",
+            buffering=1,
+        )
+        _CRASH_LOG_HANDLE.write(
+            f"\n--- Forza Auto Shift start {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n"
+        )
+        faulthandler.enable(_CRASH_LOG_HANDLE, all_threads=True)
+    except OSError:
+        _CRASH_LOG_HANDLE = None
+        faulthandler.enable(all_threads=True)
+
+    previous_excepthook = sys.excepthook
+
+    def log_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
+        if _CRASH_LOG_HANDLE is not None:
+            traceback.print_exception(
+                exc_type,
+                exc_value,
+                exc_traceback,
+                file=_CRASH_LOG_HANDLE,
+            )
+            _CRASH_LOG_HANDLE.flush()
+        previous_excepthook(exc_type, exc_value, exc_traceback)
+
+    sys.excepthook = log_unhandled_exception
+
+    previous_threading_excepthook = threading.excepthook
+
+    def log_thread_exception(args: threading.ExceptHookArgs) -> None:
+        if _CRASH_LOG_HANDLE is not None:
+            _CRASH_LOG_HANDLE.write(
+                f"\n--- Unhandled thread exception in {args.thread.name if args.thread else 'unknown'} ---\n"
+            )
+            traceback.print_exception(
+                args.exc_type,
+                args.exc_value,
+                args.exc_traceback,
+                file=_CRASH_LOG_HANDLE,
+            )
+            _CRASH_LOG_HANDLE.flush()
+        previous_threading_excepthook(args)
+
+    threading.excepthook = log_thread_exception
 
 
 DEFAULT_AT_CONFIG_VALUES: dict[str, object] = {
@@ -1043,7 +1121,11 @@ class MainWindow(QMainWindow):
 
         self._thread: QThread | None = None
         self._worker: AutoShiftWorker | None = None
-        self._hotkey_listener: keyboard.Listener | None = None
+        self._worker_stop_requested = False
+        self._worker_generation = 0
+        self._last_hotkey_toggle_time = 0.0
+        self._hotkey_registered = False
+        self._cleaning_up_hotkey = False
         self._current_hotkey: frozenset | None = frozenset([DEFAULT_HOTKEY])
         self._recording_hotkey = False
         self._recording_shift_key_target: str | None = None
@@ -1637,13 +1719,9 @@ class MainWindow(QMainWindow):
             f"{self._t('hotkey.prefix', 'Hotkey')}: {self._get_hotkey_name()}"
         )
         controls.addWidget(self.hotkey_label)
-        self.start_button = QPushButton(self._t("button.start", "Start"))
-        self.start_button.clicked.connect(self.start_worker)
-        controls.addWidget(self.start_button)
-        self.stop_button = QPushButton(self._t("button.stop", "Stop"))
-        self.stop_button.clicked.connect(self.stop_worker)
-        self.stop_button.setEnabled(False)
-        controls.addWidget(self.stop_button)
+        self.worker_toggle_button = QPushButton(self._t("button.start", "Start"))
+        self.worker_toggle_button.clicked.connect(self._toggle_worker_button)
+        controls.addWidget(self.worker_toggle_button)
         main_layout.addLayout(controls)
 
         self.statusBar().showMessage(
@@ -1668,7 +1746,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def start_worker(self) -> None:
-        if self._thread is not None:
+        if self._thread is not None or self._worker_stop_requested:
             return
 
         bind_host = self.listen_address_input.text().strip()
@@ -1682,6 +1760,8 @@ class MainWindow(QMainWindow):
         log_level = self.log_level_input.currentText()
 
         thread = QThread(self)
+        self._worker_generation += 1
+        worker_generation = self._worker_generation
         worker = AutoShiftWorker(
             bind_host=bind_host,
             port=port,
@@ -1706,17 +1786,19 @@ class MainWindow(QMainWindow):
             worker.update_at_config,
             Qt.ConnectionType.DirectConnection,
         )
-        worker.finished.connect(self.on_worker_finished)
+        worker.finished.connect(
+            lambda generation=worker_generation: self.on_worker_finished(generation)
+        )
         worker.finished.connect(worker.deleteLater)
         worker.finished.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
 
         self._thread = thread
         self._worker = worker
+        self._worker_stop_requested = False
 
         self._set_input_controls_enabled(False)
-        self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
+        self._update_worker_toggle_button()
 
         thread.start()
         self._play_worker_chime("start")
@@ -1841,7 +1923,9 @@ class MainWindow(QMainWindow):
         )
         return self._build_at_config_from_values(preset_values), preset_name
 
-    def _set_input_controls_enabled(self, enabled: bool) -> None:
+    def _set_input_controls_enabled(
+        self, enabled: bool, include_tuning: bool = True
+    ) -> None:
         """Enable/disable all input controls but keep tabs switchable."""
         # Connection tab
         self.listen_address_input.setEnabled(enabled)
@@ -1852,8 +1936,11 @@ class MainWindow(QMainWindow):
         self.record_shift_down_button.setEnabled(enabled)
         self.record_shift_up_button.setEnabled(enabled)
         # Tuning tab controls (built-in presets are read-only in editor)
-        active_is_builtin = self._active_preset_name.lower() in BUILTIN_PRESET_TEMPLATES
-        self._set_tuning_fields_enabled(not active_is_builtin)
+        if include_tuning:
+            active_is_builtin = (
+                self._active_preset_name.lower() in BUILTIN_PRESET_TEMPLATES
+            )
+            self._set_tuning_fields_enabled(not active_is_builtin)
         # Preset editor + binding tab
         self.preset_list.setEnabled(True)
         self.preset_create_button.setEnabled(True)
@@ -1890,14 +1977,16 @@ class MainWindow(QMainWindow):
             self._chime_start_effect.setSource(
                 QUrl.fromLocalFile(str(start_path.resolve()))
             )
-            # self._chime_start_effect.setVolume(0.60)
+            self._chime_start_effect.setLoopCount(1)
+            self._chime_start_effect.setVolume(0.60)
 
         if stop_path.exists():
             self._chime_stop_effect = QSoundEffect(self)
             self._chime_stop_effect.setSource(
                 QUrl.fromLocalFile(str(stop_path.resolve()))
             )
-            # self._chime_stop_effect.setVolume(0.60)
+            self._chime_stop_effect.setLoopCount(1)
+            self._chime_stop_effect.setVolume(0.60)
 
     def _play_worker_chime(self, event: str) -> None:
         if not self._play_worker_chime_enabled:
@@ -1907,6 +1996,7 @@ class MainWindow(QMainWindow):
             self._chime_start_effect if event == "start" else self._chime_stop_effect
         )
         if effect is not None:
+            effect.stop()
             effect.play()
 
     @Slot(bool)
@@ -2024,10 +2114,12 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def stop_worker(self) -> None:
-        if self._worker is None:
+        if self._worker is None or self._worker_stop_requested:
             return
+        self._worker_stop_requested = True
+        self._play_worker_chime("stop")
         self._worker.stop()
-        self.stop_button.setEnabled(False)
+        self._update_worker_toggle_button()
 
     @Slot(str)
     def append_log(self, message: str) -> None:
@@ -2069,15 +2161,28 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"{self._t('status.prefix', 'Status')}: {status}")
 
     @Slot()
-    def on_worker_finished(self) -> None:
+    def on_worker_finished(self, generation: int | None = None) -> None:
+        if generation is not None and generation != self._worker_generation:
+            return
         self._worker = None
         self._thread = None
+        self._worker_stop_requested = False
+        QTimer.singleShot(0, self._finalize_worker_stopped_ui)
 
-        self._set_input_controls_enabled(True)
-        self.start_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        self._play_worker_chime("stop")
+    def _finalize_worker_stopped_ui(self) -> None:
+        if self._thread is not None or self._worker is not None:
+            return
+        self._set_input_controls_enabled(True, include_tuning=False)
+        self._update_worker_toggle_button()
+        QTimer.singleShot(0, self._restore_tuning_fields_enabled)
         self._save_app_state()
+
+    def _restore_tuning_fields_enabled(self) -> None:
+        if self._thread is not None or self._worker is not None:
+            return
+        self._set_tuning_fields_enabled(
+            self._active_preset_name.lower() not in BUILTIN_PRESET_TEMPLATES
+        )
 
     def _get_hotkey_name(self) -> str:
         """Get a friendly name for the current hotkey combination (modifiers first)."""
@@ -2407,6 +2512,64 @@ class MainWindow(QMainWindow):
             return self._canonical_hotkey_key(key)
         return None
 
+    def _key_to_vk(self, key: object) -> int | None:
+        key = self._canonical_hotkey_key(key)
+        if isinstance(key, keyboard.KeyCode):
+            if key.vk is not None:
+                return int(key.vk)
+            if key.char:
+                return ord(key.char.upper())
+        if isinstance(key, keyboard.Key):
+            return SPECIAL_KEY_VK_MAP.get(key)
+        return None
+
+    def _current_hotkey_to_win32(self) -> tuple[int, int] | None:
+        if not self._current_hotkey:
+            return None
+        modifiers = MOD_NOREPEAT
+        vk: int | None = None
+        for key in self._current_hotkey:
+            canonical_key = self._canonical_hotkey_key(key)
+            if canonical_key == keyboard.Key.shift:
+                modifiers |= MOD_SHIFT
+            elif canonical_key == keyboard.Key.ctrl:
+                modifiers |= MOD_CONTROL
+            elif canonical_key == keyboard.Key.alt:
+                modifiers |= MOD_ALT
+            else:
+                if vk is not None:
+                    return None
+                vk = self._key_to_vk(canonical_key)
+        if vk is None:
+            return None
+        return modifiers, vk
+
+    def _qt_key_to_hotkey_key(self, event: QKeyEvent) -> object | None:
+        qt_key = event.key()
+        if qt_key in (Qt.Key.Key_Shift,):
+            return keyboard.Key.shift
+        if qt_key in (Qt.Key.Key_Control,):
+            return keyboard.Key.ctrl
+        if qt_key in (Qt.Key.Key_Alt,):
+            return keyboard.Key.alt
+        if qt_key == Qt.Key.Key_Escape:
+            return keyboard.Key.esc
+
+        key_name = QKeySequence(qt_key).toString()
+        if key_name:
+            special_name = key_name.lower()
+            if special_name.startswith("f") and special_name[1:].isdigit():
+                key = getattr(keyboard.Key, special_name, None)
+                if key is not None:
+                    return key
+
+        text = event.text()
+        if text and len(text) == 1 and text.isprintable():
+            return self._canonical_hotkey_key(keyboard.KeyCode.from_char(text.lower()))
+        if qt_key > 0:
+            return self._canonical_hotkey_key(keyboard.KeyCode.from_vk(int(qt_key)))
+        return None
+
     def _collect_app_state(self) -> dict[str, object]:
         hotkey_tokens = [
             self._key_to_token(k) for k in (self._current_hotkey or frozenset())
@@ -2722,6 +2885,35 @@ class MainWindow(QMainWindow):
             self._car_alias_map.pop(car_key, None)
             self.append_log(f"[INFO] Car {game_code}-{car_id} alias reset to default.")
         self._save_app_state()
+
+    def _toggle_worker_from_hotkey(self) -> None:
+        now = time.monotonic()
+        if now - self._last_hotkey_toggle_time < 0.75:
+            return
+        self._last_hotkey_toggle_time = now
+        self._toggle_worker_button()
+
+    @Slot()
+    def _toggle_worker_button(self) -> None:
+        if self._worker_stop_requested:
+            return
+        if self._thread is None:
+            self.start_worker()
+        else:
+            self.stop_worker()
+
+    def _update_worker_toggle_button(self) -> None:
+        if self._worker_stop_requested:
+            self.worker_toggle_button.setText(
+                self._t("button.stopping", "Stopping...")
+            )
+            self.worker_toggle_button.setEnabled(False)
+            return
+        if self._thread is None:
+            self.worker_toggle_button.setText(self._t("button.start", "Start"))
+        else:
+            self.worker_toggle_button.setText(self._t("button.stop", "Stop"))
+        self.worker_toggle_button.setEnabled(True)
 
     def _emit_current_car_config_if_running(self) -> None:
         if (
@@ -3452,6 +3644,7 @@ class MainWindow(QMainWindow):
         """Start listening for next key press to record as hotkey."""
         if self._recording_shift_key_target is not None:
             return
+        self._unregister_global_hotkey()
         self._currently_pressed_keys.clear()
         self._hotkey_recording_pressed_keys.clear()
         self._hotkey_trigger_latched = False
@@ -3500,6 +3693,8 @@ class MainWindow(QMainWindow):
         )
         self.record_hotkey_button.setEnabled(True)
         self.append_log("Hotkey recording canceled.")
+        if not self._cleaning_up_hotkey:
+            self._setup_hotkey_listener()
 
     def _cancel_shift_key_recording(self) -> None:
         if self._recording_shift_key_target is None:
@@ -3509,16 +3704,7 @@ class MainWindow(QMainWindow):
         self.append_log(f"Shift {target} key recording canceled.")
 
     def _key_to_scan_code(self, key: object) -> int | None:
-        user32 = ctypes.windll.user32
-        vk: int | None = None
-
-        if isinstance(key, keyboard.KeyCode):
-            if key.vk is not None:
-                vk = int(key.vk)
-            elif key.char:
-                vk = ord(key.char.upper())
-        elif isinstance(key, keyboard.Key):
-            vk = SPECIAL_KEY_VK_MAP.get(key)
+        vk = self._key_to_vk(key)
 
         if vk is None:
             return None
@@ -3550,19 +3736,36 @@ class MainWindow(QMainWindow):
         self.record_shift_down_button.setEnabled(True)
         self.record_shift_up_button.setEnabled(True)
 
-    def _on_hotkey_press(self, key: keyboard.Key | keyboard.KeyCode | None) -> bool:
-        """pynput callback thread: forward key press to Qt main thread."""
-        if key is None:
-            return True
-        self.hotkey_pressed.emit(key)
-        return True
+    def nativeEvent(self, event_type: bytes | str, message: int) -> tuple[bool, int]:
+        if event_type in (b"windows_generic_MSG", "windows_generic_MSG"):
+            try:
+                msg = wintypes.MSG.from_address(int(message))
+            except (TypeError, ValueError):
+                return False, 0
+            if msg.message == WM_HOTKEY and int(msg.wParam) == GLOBAL_HOTKEY_ID:
+                self._toggle_worker_from_hotkey()
+                return True, 0
+        return False, 0
 
-    def _on_hotkey_release(self, key: keyboard.Key | keyboard.KeyCode | None) -> bool:
-        """pynput callback thread: forward key release to Qt main thread."""
-        if key is None:
-            return True
-        self.hotkey_released.emit(key)
-        return True
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
+        key = self._qt_key_to_hotkey_key(event)
+        if key is not None and (
+            self._recording_hotkey or self._recording_shift_key_target is not None
+        ):
+            self._handle_hotkey_press(key)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
+        key = self._qt_key_to_hotkey_key(event)
+        if key is not None and (
+            self._recording_hotkey or self._recording_shift_key_target is not None
+        ):
+            self._handle_hotkey_release(key)
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
 
     @Slot(object)
     def _handle_hotkey_press(self, key: object) -> None:
@@ -3617,6 +3820,7 @@ class MainWindow(QMainWindow):
                     f"{self._t('hotkey.prefix', 'Hotkey')}: {self._get_hotkey_name()}"
                 )
                 self.append_log(f"Hotkey set to {self._get_hotkey_name()}")
+                self._setup_hotkey_listener()
             return
 
         # Check if current pressed keys match hotkey
@@ -3626,10 +3830,7 @@ class MainWindow(QMainWindow):
             and not self._hotkey_trigger_latched
         ):
             self._hotkey_trigger_latched = True
-            if self._thread is None:
-                self.start_worker()
-            else:
-                self.stop_worker()
+            self._toggle_worker_from_hotkey()
 
     @Slot(object)
     def _handle_hotkey_release(self, key: object) -> None:
@@ -3647,31 +3848,42 @@ class MainWindow(QMainWindow):
             self._hotkey_trigger_latched = False
 
     def _setup_hotkey_listener(self) -> None:
-        """Set up global hotkey listener for toggle start/stop."""
-        try:
-            self._hotkey_listener = keyboard.Listener(
-                on_press=self._on_hotkey_press, on_release=self._on_hotkey_release
-            )
-            self._hotkey_listener.start()
+        """Register a global start/stop hotkey with Win32."""
+        self._unregister_global_hotkey()
+        hotkey = self._current_hotkey_to_win32()
+        if hotkey is None:
             self.append_log(
-                f"Global hotkey listener started. Hotkey: {self._get_hotkey_name()}"
+                "Warning: Global hotkey must include exactly one non-modifier key."
             )
-        except Exception as e:
-            self.append_log(f"Warning: Could not set up hotkey listener: {e}")
+            return
+        modifiers, vk = hotkey
+        hwnd = wintypes.HWND(int(self.winId()))
+        if not user32.RegisterHotKey(hwnd, GLOBAL_HOTKEY_ID, modifiers, vk):
+            error = ctypes.get_last_error()
+            self.append_log(
+                f"Warning: Could not register global hotkey {self._get_hotkey_name()} (WinError {error})."
+            )
+            return
+        self._hotkey_registered = True
+        self.append_log(
+            f"Global hotkey registered. Hotkey: {self._get_hotkey_name()}"
+        )
+
+    def _unregister_global_hotkey(self) -> None:
+        if self._hotkey_registered:
+            user32.UnregisterHotKey(wintypes.HWND(int(self.winId())), GLOBAL_HOTKEY_ID)
+            self._hotkey_registered = False
 
     def _cleanup_hotkey_listener(self) -> None:
-        """Clean up hotkey listener."""
+        """Unregister global hotkey."""
+        self._cleaning_up_hotkey = True
         self._currently_pressed_keys.clear()
         self._hotkey_recording_pressed_keys.clear()
         self._hotkey_trigger_latched = False
         self._cancel_hotkey_recording()
         self._finish_shift_key_recording()
-        if self._hotkey_listener is not None:
-            try:
-                self._hotkey_listener.stop()
-            except Exception:
-                pass
-            self._hotkey_listener = None
+        self._unregister_global_hotkey()
+        self._cleaning_up_hotkey = False
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._cleanup_hotkey_listener()
@@ -3755,6 +3967,7 @@ def run_gui() -> int:
             return fallback
         return None
 
+    _install_crash_diagnostics()
     app = QApplication(sys.argv)
     _install_ui_translator(app, _load_selected_ui_language_from_state())
     icon_path = _resolve_app_icon_path(app)

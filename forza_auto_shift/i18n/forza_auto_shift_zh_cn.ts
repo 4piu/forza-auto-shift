@@ -1037,5 +1037,10 @@ If deleted, affected cars will be reassigned to '{default_preset}'.Continue ?</c
             <comment>Up</comment>
             <translation>升挡</translation>
         </message>
+        <message>
+            <source>button.stopping</source>
+            <comment>Stopping...</comment>
+            <translation>正在停止...</translation>
+        </message>
     </context>
 </TS>

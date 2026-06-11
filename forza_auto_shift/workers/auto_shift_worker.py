@@ -8,6 +8,7 @@ import queue
 import socket
 import threading
 import time
+from ctypes import wintypes
 
 from PySide6.QtCore import QObject, Signal, Slot
 
@@ -51,6 +52,38 @@ FORZA_PROCESS_NAMES = {
     "forza_gaming.desktop.x64_release_final.exe",
 }
 
+user32 = ctypes.WinDLL("user32", use_last_error=True)
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+user32.GetForegroundWindow.argtypes = ()
+user32.GetForegroundWindow.restype = wintypes.HWND
+user32.GetWindowTextW.argtypes = (
+    wintypes.HWND,
+    wintypes.LPWSTR,
+    ctypes.c_int,
+)
+user32.GetWindowTextW.restype = ctypes.c_int
+user32.GetWindowThreadProcessId.argtypes = (
+    wintypes.HWND,
+    ctypes.POINTER(wintypes.DWORD),
+)
+user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+kernel32.OpenProcess.argtypes = (
+    wintypes.DWORD,
+    wintypes.BOOL,
+    wintypes.DWORD,
+)
+kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.QueryFullProcessImageNameW.argtypes = (
+    wintypes.HANDLE,
+    wintypes.DWORD,
+    wintypes.LPWSTR,
+    ctypes.POINTER(wintypes.DWORD),
+)
+kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+kernel32.CloseHandle.restype = wintypes.BOOL
+
 
 def detect_game_code_from_process_name(process_name: str | None) -> str:
     if not process_name:
@@ -59,9 +92,6 @@ def detect_game_code_from_process_name(process_name: str | None) -> str:
 
 
 def _get_foreground_window_title_and_process() -> tuple[str, str | None]:
-    user32 = ctypes.windll.user32
-    kernel32 = ctypes.windll.kernel32
-
     hwnd = user32.GetForegroundWindow()
     if not hwnd:
         return "", None
@@ -70,7 +100,7 @@ def _get_foreground_window_title_and_process() -> tuple[str, str | None]:
     user32.GetWindowTextW(hwnd, title_buffer, len(title_buffer))
     title = title_buffer.value
 
-    pid = ctypes.c_ulong(0)
+    pid = wintypes.DWORD(0)
     user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
     if pid.value == 0:
         return title, None
@@ -83,7 +113,7 @@ def _get_foreground_window_title_and_process() -> tuple[str, str | None]:
 
     try:
         path_buffer = ctypes.create_unicode_buffer(1024)
-        size = ctypes.c_ulong(len(path_buffer))
+        size = wintypes.DWORD(len(path_buffer))
         success = kernel32.QueryFullProcessImageNameW(
             process_handle,
             0,

@@ -6,6 +6,9 @@ import ctypes
 import time
 from dataclasses import dataclass
 
+DWORD = ctypes.c_uint32
+ULONG_PTR = ctypes.c_size_t
+
 KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_SCANCODE = 0x0008
 INPUT_KEYBOARD = 1
@@ -19,9 +22,9 @@ class KEYBDINPUT(ctypes.Structure):
     _fields_ = [
         ("wVk", ctypes.c_ushort),
         ("wScan", ctypes.c_ushort),
-        ("dwFlags", ctypes.c_ulong),
-        ("time", ctypes.c_ulong),
-        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+        ("dwFlags", DWORD),
+        ("time", DWORD),
+        ("dwExtraInfo", ULONG_PTR),
     ]
 
 
@@ -31,10 +34,10 @@ class MOUSEINPUT(ctypes.Structure):
     _fields_ = [
         ("dx", ctypes.c_long),
         ("dy", ctypes.c_long),
-        ("mouseData", ctypes.c_ulong),
-        ("dwFlags", ctypes.c_ulong),
-        ("time", ctypes.c_ulong),
-        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+        ("mouseData", DWORD),
+        ("dwFlags", DWORD),
+        ("time", DWORD),
+        ("dwExtraInfo", ULONG_PTR),
     ]
 
 
@@ -43,7 +46,7 @@ class INPUT_UNION(ctypes.Union):
 
 
 class INPUT(ctypes.Structure):
-    _fields_ = [("type", ctypes.c_ulong), ("union", INPUT_UNION)]
+    _fields_ = [("type", DWORD), ("union", INPUT_UNION)]
 
 
 @dataclass(slots=True)
@@ -59,7 +62,14 @@ class GearInputController:
 
     def __init__(self, config: GearInputConfig | None = None) -> None:
         self.config = config or GearInputConfig()
-        self._send_input = ctypes.windll.user32.SendInput
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        self._send_input = user32.SendInput
+        self._send_input.argtypes = (
+            ctypes.c_uint,
+            ctypes.POINTER(INPUT),
+            ctypes.c_int,
+        )
+        self._send_input.restype = ctypes.c_uint
 
     def shift_up(self) -> None:
         self._press_scan_key(self.config.shift_up_scan_code)
@@ -76,13 +86,14 @@ class GearInputController:
         self._send_key_event(scan_code, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP)
 
     def _send_key_event(self, scan_code: int, flags: int) -> None:
-        extra = ctypes.c_ulong(0)
         keyboard_input = KEYBDINPUT(
             wVk=0,
             wScan=scan_code,
             dwFlags=flags,
             time=0,
-            dwExtraInfo=ctypes.pointer(extra),
+            dwExtraInfo=0,
         )
         input_struct = INPUT(type=INPUT_KEYBOARD, union=INPUT_UNION(ki=keyboard_input))
-        self._send_input(1, ctypes.byref(input_struct), ctypes.sizeof(INPUT))
+        sent = self._send_input(1, ctypes.byref(input_struct), ctypes.sizeof(INPUT))
+        if sent != 1:
+            raise ctypes.WinError(ctypes.get_last_error())

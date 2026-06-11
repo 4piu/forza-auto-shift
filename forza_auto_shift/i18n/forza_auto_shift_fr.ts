@@ -1075,5 +1075,10 @@ S'il est supprime, les vehicules concernes seront reassignes a '{default_preset}
             <comment>Up</comment>
             <translation>Haut</translation>
         </message>
+        <message>
+            <source>button.stopping</source>
+            <comment>Stopping...</comment>
+            <translation>Arret...</translation>
+        </message>
     </context>
 </TS>

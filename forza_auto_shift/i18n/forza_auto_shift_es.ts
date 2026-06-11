@@ -1075,5 +1075,10 @@ Si lo eliminas, esos coches se reasignaran a '{default_preset}'. Continuar?</num
             <comment>Up</comment>
             <translation>Subir</translation>
         </message>
+        <message>
+            <source>button.stopping</source>
+            <comment>Stopping...</comment>
+            <translation>Deteniendo...</translation>
+        </message>
     </context>
 </TS>
